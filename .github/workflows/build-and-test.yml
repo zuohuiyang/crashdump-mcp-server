@@ -41,7 +41,7 @@ jobs:
       run: uv sync --dev
 
     - name: Run tests
-      run: uv run pytest src/mcp_windbg/tests/ -v --tb=short
+      run: uv run pytest src/crashdump_mcp_server/tests/ -v --tb=short
 
     - name: Test CLI entry point
       run: |

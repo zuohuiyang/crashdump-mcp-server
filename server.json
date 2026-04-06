@@ -4,7 +4,7 @@
   "title": "CrashDump MCP Server",
   "description": "A Model Context Protocol server for remote Windows crash dump analysis using WinDbg/CDB",
   "repository": {
-    "url": "https://github.com/zuohuiyang/mcp-windbg",
+    "url": "https://github.com/zuohuiyang/crashdump-mcp-server",
     "source": "github"
   },
   "version": "0.13.0",

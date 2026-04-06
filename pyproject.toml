@@ -26,19 +26,19 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/zuohuiyang/mcp-windbg"
-Repository = "https://github.com/zuohuiyang/mcp-windbg"
+Homepage = "https://github.com/zuohuiyang/crashdump-mcp-server"
+Repository = "https://github.com/zuohuiyang/crashdump-mcp-server"
 Upstream = "https://github.com/svnscha/mcp-windbg"
 
 [project.scripts]
-crashdump-mcp-server = "mcp_windbg:main"
+crashdump-mcp-server = "crashdump_mcp_server:main"
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-data]
-mcp_windbg = ["prompts/*.prompt.md"]
+crashdump_mcp_server = ["prompts/*.prompt.md"]
 
 [dependency-groups]
 dev = [
@@ -48,7 +48,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["src/mcp_windbg/tests"]
+testpaths = ["src/crashdump_mcp_server/tests"]
 
 [project.optional-dependencies]
 test = ["pytest>=9.0.2"]

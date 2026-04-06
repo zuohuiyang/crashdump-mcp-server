@@ -78,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **What's New in This Release**
 
-This release focuses on making mcp-windbg more reliable, faster, and easier to use for everyone - from beginners to advanced users.
+This release focuses on making crashdump-mcp-server more reliable, faster, and easier to use for everyone - from beginners to advanced users.
 
 ### New Features
 
@@ -100,7 +100,7 @@ This release focuses on making mcp-windbg more reliable, faster, and easier to u
 **Documentation**
 - Added comprehensive debugging instructions for AI assistants ([`AGENTS.md`](AGENTS.md))
 - Created structured templates to help analyze crash dumps more effectively ([`.github/prompts/dump-triage.prompt.md`](.github/prompts/dump-triage.prompt.md))
-- All documentation is now available in the [repository Wiki](https://github.com/svnscha/mcp-windbg/wiki) for easy access
+- All documentation is now available in the [repository Wiki](https://github.com/svnscha/crashdump-mcp-server/wiki) for easy access
 - Simplified the main [`README.md`](README.md) to focus on getting started quickly
 - Added this structured [`CHANGELOG.md`](CHANGELOG.md) to track all project changes
 
@@ -112,8 +112,8 @@ This release focuses on making mcp-windbg more reliable, faster, and easier to u
 ### 🤝 Community Contributions
 
 Special thanks to [@sooknarine](https://github.com/sooknarine) for these valuable contributions:
-- [Find local dumps with other common extensions #6](https://github.com/svnscha/mcp-windbg/pull/6) - Now finds more crash dump files automatically
-- [Add support for remote debugging #10](https://github.com/svnscha/mcp-windbg/pull/10) - Connect to live debugging sessions
+- [Find local dumps with other common extensions #6](https://github.com/svnscha/crashdump-mcp-server/pull/6) - Now finds more crash dump files automatically
+- [Add support for remote debugging #10](https://github.com/svnscha/crashdump-mcp-server/pull/10) - Connect to live debugging sessions
 
 
 ## [0.1.0] - 2025-05-03

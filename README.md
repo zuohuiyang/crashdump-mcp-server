@@ -109,7 +109,7 @@ crashdump-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://your-ho
 
 - 本项目基于上游 `svnscha/mcp-windbg` fork 并持续修改。
 - 上游项目采用 MIT License，本项目继续沿用 MIT License。
-- 当前维护仓库：`https://github.com/zuohuiyang/mcp-windbg`
+- 当前维护仓库：`https://github.com/zuohuiyang/crashdump-mcp-server`
 - 上游仓库：`https://github.com/svnscha/mcp-windbg`
 
 ## License
