@@ -32,6 +32,7 @@ class _FakeSession:
 @pytest.fixture(autouse=True)
 def upload_integration_env(configure_upload_runtime, monkeypatch):
     configure_upload_runtime()
+    server.configure_public_base_url(explicit_base_url="http://debug.example.com:8080")
     _FakeSession.created = 0
     _FakeSession.shutdown_count = 0
     monkeypatch.setattr(server, "CDBSession", _FakeSession)
@@ -143,6 +144,28 @@ def test_create_upload_session_tool_returns_structured_error_for_unusable_upload
     error_payload = json.loads(result.content[0].text)["error"]
     assert error_payload["code"] == server.UPLOAD_ERROR_URL_UNAVAILABLE
     assert "public-base-url" in error_payload["remediation"]
+
+
+def test_open_windbg_dump_rejects_legacy_dump_path_argument():
+    app_server = server._create_server()
+    handler = app_server.request_handlers[CallToolRequest]
+    request = CallToolRequest(
+        method="tools/call",
+        params={
+            "name": "open_windbg_dump",
+            "arguments": {
+                "dump_path": "C:\\badstack.dmp",
+                "include_stack_trace": False,
+                "include_modules": False,
+                "include_threads": False,
+            },
+        },
+    )
+
+    result = asyncio.run(handler(request)).root
+
+    assert result.isError is True
+    assert "session_id" in result.content[0].text
 
 
 def test_close_windbg_dump_closes_uploaded_session_and_removes_temp_file():

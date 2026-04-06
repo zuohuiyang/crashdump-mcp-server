@@ -39,7 +39,6 @@ DEFAULT_SESSION_TTL_SECONDS = upload_sessions.DEFAULT_SESSION_TTL_SECONDS
 DEFAULT_MAX_ACTIVE_SESSIONS = upload_sessions.DEFAULT_MAX_ACTIVE_SESSIONS
 DEFAULT_UPLOAD_CLEANUP_INTERVAL_SECONDS = 30
 UPLOAD_ROUTE_PATH = "/uploads/dumps/{session_id}"
-DEFAULT_PUBLIC_BASE_URL = "http://127.0.0.1:8000"
 SERVER_NAME = "crashdump-mcp-server"
 UPLOAD_ERROR_TOO_LARGE = "UPLOAD_TOO_LARGE"
 UPLOAD_ERROR_INVALID_FORMAT = "INVALID_DUMP_FORMAT"
@@ -99,7 +98,7 @@ def _build_session_id(
 
 session_registry = upload_sessions.session_registry
 upload_runtime_config = upload_sessions.upload_runtime_config
-public_base_url = (os.getenv("CRASHDUMP_MCP_SERVER_BASE_URL", "").strip() or DEFAULT_PUBLIC_BASE_URL).rstrip("/")
+public_base_url = os.getenv("CRASHDUMP_MCP_SERVER_BASE_URL", "").strip().rstrip("/")
 
 def get_local_dumps_path() -> Optional[str]:
     """Get the local dumps path from the Windows registry."""
@@ -123,21 +122,11 @@ def get_local_dumps_path() -> Optional[str]:
     return None
 
 class OpenWindbgDump(BaseModel):
-    """Parameters for analyzing a crash dump."""
-    dump_path: Optional[str] = Field(default=None, description="Path to the Windows crash dump file")
-    session_id: Optional[str] = Field(default=None, description="Upload session identifier returned by create_upload_session")
+    """Parameters for analyzing an uploaded crash dump."""
+    session_id: str = Field(description="Upload session identifier returned by create_upload_session")
     include_stack_trace: bool = Field(description="Whether to include stack traces in the analysis")
     include_modules: bool = Field(description="Whether to include loaded module information")
     include_threads: bool = Field(description="Whether to include thread information")
-
-    @model_validator(mode='after')
-    def validate_target_params(self):
-        target_count = int(bool(self.dump_path)) + int(bool(self.session_id))
-        if target_count == 0:
-            raise ValueError("One of dump_path or session_id must be provided")
-        if target_count > 1:
-            raise ValueError("dump_path and session_id are mutually exclusive")
-        return self
 
 
 class CreateUploadSessionParams(BaseModel):
@@ -158,41 +147,14 @@ class CreateUploadSessionParams(BaseModel):
 
 class RunWindbgCmdParams(BaseModel):
     """Parameters for executing a WinDbg command."""
-    dump_path: Optional[str] = Field(default=None, description="Path to the Windows crash dump file")
-    session_id: Optional[str] = Field(default=None, description="Upload session identifier returned by create_upload_session")
+    session_id: str = Field(description="Upload session identifier returned by create_upload_session")
     command: str = Field(description="WinDbg command to execute")
-
-    @model_validator(mode='after')
-    def validate_connection_params(self):
-        """Validate that exactly one target identifier is provided."""
-        target_count = int(bool(self.dump_path)) + int(bool(self.session_id))
-        if target_count == 0:
-            raise ValueError("One of dump_path or session_id must be provided")
-        if target_count > 1:
-            raise ValueError("dump_path and session_id are mutually exclusive")
-        return self
 
 
 class CloseWindbgDumpParams(BaseModel):
-    """Parameters for unloading a local or uploaded crash dump."""
+    """Parameters for unloading an uploaded crash dump session."""
 
-    dump_path: Optional[str] = Field(
-        default=None,
-        description="Path to the Windows crash dump file to unload",
-    )
-    session_id: Optional[str] = Field(
-        default=None,
-        description="Upload session identifier returned by create_upload_session",
-    )
-
-    @model_validator(mode='after')
-    def validate_target_params(self):
-        target_count = int(bool(self.dump_path)) + int(bool(self.session_id))
-        if target_count == 0:
-            raise ValueError("One of dump_path or session_id must be provided")
-        if target_count > 1:
-            raise ValueError("dump_path and session_id are mutually exclusive")
-        return self
+    session_id: str = Field(description="Upload session identifier returned by create_upload_session")
 
 
 class ListWindbgDumpsParams(BaseModel):
@@ -320,19 +282,19 @@ def configure_public_base_url(
 ) -> str:
     global public_base_url
 
-    configured = explicit_base_url or os.getenv("CRASHDUMP_MCP_SERVER_BASE_URL", "").strip()
-    public_base_url = (configured or f"http://{host}:{port}").rstrip("/")
+    configured = (explicit_base_url or os.getenv("CRASHDUMP_MCP_SERVER_BASE_URL", "").strip()).rstrip("/")
+    public_base_url = configured
     return public_base_url
 
 
 def build_upload_url(session_id: str) -> str:
     parsed = urlparse(public_base_url)
     hostname = (parsed.hostname or "").strip().lower()
-    if not parsed.scheme or not parsed.netloc or hostname in {"0.0.0.0", "::"}:
+    if not parsed.scheme or not parsed.netloc or hostname in {"0.0.0.0", "::", "localhost", "127.0.0.1"}:
         raise UploadWorkflowError(
             code=UPLOAD_ERROR_URL_UNAVAILABLE,
-            message="upload URL cannot be derived from wildcard or missing public base URL",
-            remediation="Configure CRASHDUMP_MCP_SERVER_BASE_URL or --public-base-url with a client-reachable address.",
+            message="upload URL cannot be derived from missing or non-routable public base URL",
+            remediation="Configure CRASHDUMP_MCP_SERVER_BASE_URL or --public-base-url with a client-reachable IP or hostname.",
             details={"public_base_url": public_base_url},
             http_status=500,
         )
@@ -553,20 +515,10 @@ def close_upload_session(session_id: str) -> Dict[str, object]:
 
 
 def close_windbg_dump(
-    dump_path: Optional[str] = None,
-    session_id: Optional[str] = None,
+    session_id: str,
 ) -> Dict[str, object]:
-    """Close a local or uploaded dump session."""
-    if session_id:
-        return close_upload_session(session_id)
-
-    if not dump_path:
-        raise McpError(ErrorData(code=INVALID_PARAMS, message="dump_path must be provided"))
-
-    success = unload_session(dump_path=dump_path)
-    if success:
-        return {"status": "closed", "dump_path": dump_path}
-    return {"status": "not_found", "dump_path": dump_path}
+    """Close an uploaded dump session."""
+    return close_upload_session(session_id)
 
 
 async def serve_http(
@@ -815,32 +767,31 @@ def _create_server(
                 name="create_upload_session",
                 description="""
                 Create a server-side upload session for a supported crash dump file (*.dmp, *.mdmp, *.hdmp).
+                This is the required first step for analyzing a client-local dump.
                 Returns a client-reachable upload_url for an HTTP PUT upload.
-                Use this when the dump file only exists on the MCP client machine.
+                After upload, use session_id for every follow-up call.
                 """,
                 inputSchema=CreateUploadSessionParams.model_json_schema(),
             ),
             Tool(
                 name="open_windbg_dump",
                 description="""
-                Analyze a Windows crash dump file using WinDbg/CDB.
-                dump_path is always resolved on the crashdump server host.
-                Use session_id for uploaded dumps and dump_path only for server-local dump files.
+                Analyze an uploaded Windows crash dump identified by session_id.
+                Use create_upload_session first, upload the raw dump bytes to upload_url, then call this tool.
                 """,
                 inputSchema=OpenWindbgDump.model_json_schema(),
             ),
             Tool(
                 name="run_windbg_cmd",
                 description="""
-                Execute a specific WinDbg command against a server-local dump_path or an uploaded session_id.
+                Execute a specific WinDbg command against an uploaded dump session identified by session_id.
                 """,
                 inputSchema=RunWindbgCmdParams.model_json_schema(),
             ),
             Tool(
                 name="close_windbg_dump",
                 description="""
-                Unload a crash dump and release resources.
-                Accepts either a server-local dump_path or an uploaded session_id.
+                Close an uploaded dump session identified by session_id and release resources.
                 """,
                 inputSchema=CloseWindbgDumpParams.model_json_schema(),
             ),
@@ -858,49 +809,27 @@ def _create_server(
     async def call_tool(name, arguments: dict) -> list[TextContent]:
         try:
             if name == "open_windbg_dump":
-                # Provide local dump discovery hints only when no target was supplied.
-                if not arguments.get("dump_path") and not arguments.get("session_id"):
+                if not arguments.get("session_id"):
                     local_dumps_path = get_local_dumps_path()
-                    dumps_found_text = ""
-                    upload_hint = ""
-
+                    local_hint = ""
                     if local_dumps_path:
-                        # Find dump files in the local dumps directory
-                        search_pattern = os.path.join(local_dumps_path, "*.*dmp")
-                        dump_files = glob.glob(search_pattern)
-
-                        if dump_files:
-                            dumps_found_text = f"\n\nI found {len(dump_files)} crash dump(s) in {local_dumps_path}:\n\n"
-                            for i, dump_file in enumerate(dump_files[:10]):  # Limit to 10 dumps to avoid clutter
-                                try:
-                                    size_mb = round(os.path.getsize(dump_file) / (1024 * 1024), 2)
-                                except (OSError, IOError):
-                                    size_mb = "unknown"
-
-                                dumps_found_text += f"{i+1}. {dump_file} ({size_mb} MB)\n"
-
-                            if len(dump_files) > 10:
-                                dumps_found_text += f"\n... and {len(dump_files) - 10} more dump files.\n"
-
-                            dumps_found_text += "\nYou can analyze one of these dumps by specifying its path."
-
-                    upload_hint = (
-                        "\n\nIf the dump is local to the MCP client, use "
-                        "'create_upload_session', upload the raw bytes to the returned "
-                        "'upload_url', and then call 'open_windbg_dump' with 'session_id'."
-                    )
+                        local_hint = (
+                            f"\n\nServer-local dumps may still exist under {local_dumps_path}, "
+                            "but this crashdump server requires session_id for analysis calls."
+                        )
 
                     return [TextContent(
                         type="text",
-                        text=f"Please provide a path to a crash dump file to analyze.{dumps_found_text}\n\n"
-                              f"You can use the 'list_windbg_dumps' tool to discover available crash dumps."
-                              f"{upload_hint}"
+                        text=(
+                            "Use 'create_upload_session' first, upload the raw dump bytes to the returned "
+                            "'upload_url', and then call 'open_windbg_dump' with 'session_id'."
+                            f"{local_hint}"
+                        )
                     )]
 
                 args = OpenWindbgDump(**arguments)
                 with debugger_session_for_tool(
-                    dump_path=getattr(args, "dump_path", None),
-                    session_id=getattr(args, "session_id", None),
+                    session_id=args.session_id,
                     cdb_path=cdb_path,
                     symbols_path=symbols_path,
                     timeout=timeout,
@@ -933,8 +862,7 @@ def _create_server(
             elif name == "run_windbg_cmd":
                 args = RunWindbgCmdParams(**arguments)
                 with debugger_session_for_tool(
-                    dump_path=getattr(args, "dump_path", None),
-                    session_id=getattr(args, "session_id", None),
+                    session_id=args.session_id,
                     cdb_path=cdb_path,
                     symbols_path=symbols_path,
                     timeout=timeout,
@@ -954,15 +882,7 @@ def _create_server(
 
             elif name == "close_windbg_dump":
                 args = CloseWindbgDumpParams(**arguments)
-                if getattr(args, "session_id", None):
-                    payload = close_upload_session(args.session_id)
-                    return [TextContent(type="text", text=json.dumps(payload))]
-
-                success = unload_session(dump_path=args.dump_path)
-                payload = {
-                    "status": "closed" if success else "not_found",
-                    "dump_path": args.dump_path,
-                }
+                payload = close_upload_session(args.session_id)
                 return [TextContent(type="text", text=json.dumps(payload))]
 
             elif name == "list_windbg_dumps":
@@ -1052,13 +972,8 @@ def _create_server(
                 description=DUMP_TRIAGE_PROMPT_DESCRIPTION,
                 arguments=[
                     PromptArgument(
-                        name="dump_path",
-                        description="Server-local dump path to analyze (optional)",
-                        required=False,
-                    ),
-                    PromptArgument(
                         name="session_id",
-                        description="Upload session identifier returned by create_upload_session (optional)",
+                        description="Upload session identifier returned by create_upload_session",
                         required=False,
                     ),
                 ],
@@ -1071,7 +986,6 @@ def _create_server(
             arguments = {}
 
         if name == DUMP_TRIAGE_PROMPT_NAME:
-            dump_path = arguments.get("dump_path", "")
             session_id = arguments.get("session_id", "")
             try:
                 prompt_content = load_prompt("dump-triage")
@@ -1081,9 +995,7 @@ def _create_server(
                     message=f"Prompt file not found: {e}"
                 ))
 
-            if dump_path:
-                prompt_text = f"**Dump file to analyze:** {dump_path}\n\n{prompt_content}"
-            elif session_id:
+            if session_id:
                 prompt_text = f"**Uploaded dump session:** {session_id}\n\n{prompt_content}"
             else:
                 prompt_text = prompt_content

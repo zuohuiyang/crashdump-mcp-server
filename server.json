@@ -36,7 +36,7 @@
         {
           "type": "named",
           "name": "--public-base-url",
-          "description": "Externally reachable base URL used when returning upload_url"
+          "description": "Client-reachable base URL used when returning upload_url; required for remote upload workflows"
         }
       ],
       "environmentVariables": [
@@ -55,7 +55,7 @@
           "name": "_NT_SYMBOL_PATH"
         },
         {
-          "description": "Externally reachable base URL used when returning upload_url",
+          "description": "Client-reachable base URL used when returning upload_url; required for remote upload workflows",
           "isRequired": false,
           "format": "string",
           "isSecret": false,

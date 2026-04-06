@@ -24,6 +24,9 @@ def test_crashdump_server_exposes_only_dump_analysis_tools():
     assert "session_id" in tool_map["open_windbg_dump"].inputSchema["properties"]
     assert "session_id" in tool_map["run_windbg_cmd"].inputSchema["properties"]
     assert "session_id" in tool_map["close_windbg_dump"].inputSchema["properties"]
+    assert "dump_path" not in tool_map["open_windbg_dump"].inputSchema["properties"]
+    assert "dump_path" not in tool_map["run_windbg_cmd"].inputSchema["properties"]
+    assert "dump_path" not in tool_map["close_windbg_dump"].inputSchema["properties"]
     assert "connection_string" not in tool_map["run_windbg_cmd"].inputSchema["properties"]
     assert "open_windbg_remote" not in tool_names
     assert "close_windbg_remote" not in tool_names

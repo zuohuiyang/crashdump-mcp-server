@@ -14,10 +14,10 @@ pytestmark = pytest.mark.usefixtures("restore_upload_runtime_state")
 @pytest.fixture(autouse=True)
 def upload_test_env(configure_upload_runtime):
     configure_upload_runtime(max_upload_mb=1)
+    server.configure_public_base_url(explicit_base_url="http://crashdump.local:8000")
 
 
 def test_create_upload_session_returns_upload_target():
-    server.configure_public_base_url(explicit_base_url="http://crashdump.local:8000")
     payload = server.create_upload_session("crash.dmp")
 
     assert payload["session_id"]
@@ -45,8 +45,18 @@ def test_create_upload_session_rejects_unusable_public_base_url():
     assert not server.session_registry.upload_sessions
 
 
+@pytest.mark.parametrize("base_url", ["", "http://127.0.0.1:8000", "http://localhost:8000"])
+def test_create_upload_session_requires_explicit_client_reachable_public_base_url(base_url):
+    server.configure_public_base_url(explicit_base_url=base_url)
+
+    with pytest.raises(server.UploadWorkflowError) as exc_info:
+        server.create_upload_session("crash.dmp")
+
+    assert exc_info.value.code == server.UPLOAD_ERROR_URL_UNAVAILABLE
+    assert not server.session_registry.upload_sessions
+
+
 def test_put_upload_dump_succeeds_and_marks_session_uploaded():
-    server.configure_public_base_url(explicit_base_url="http://crashdump.local:8000")
     payload = server.create_upload_session("uploaded.dmp")
     app = server.create_http_app()
 
@@ -61,7 +71,6 @@ def test_put_upload_dump_succeeds_and_marks_session_uploaded():
 
 
 def test_put_upload_dump_rejects_invalid_signature_and_rolls_back():
-    server.configure_public_base_url(explicit_base_url="http://crashdump.local:8000")
     payload = server.create_upload_session("bad.dmp")
     metadata = server.session_registry.upload_sessions[payload["session_id"]]
     app = server.create_http_app()
@@ -77,7 +86,6 @@ def test_put_upload_dump_rejects_invalid_signature_and_rolls_back():
 
 
 def test_put_upload_dump_rolls_back_on_cancellation(monkeypatch):
-    server.configure_public_base_url(explicit_base_url="http://crashdump.local:8000")
     payload = server.create_upload_session("cancelled.dmp")
     metadata = server.session_registry.upload_sessions[payload["session_id"]]
     app = server.create_http_app()

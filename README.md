@@ -8,7 +8,7 @@
 
 - 这是一个 **server-first** 的 MCP 服务，不再把自己定位为本地 WinDbg 工具集合。
 - 核心场景只有一条主链路：`上传 dump -> 打开分析 -> 执行补充命令 -> 关闭会话`。
-- `dump_path` 永远按**服务端机器**的文件系统解释，不按 MCP 客户端所在机器解释。
+- `session_id` 是上传分析链路的唯一主键。
 
 ## 目标与约束
 
@@ -27,10 +27,10 @@
 ## 能力范围
 
 - `create_upload_session`：为客户端本地 dump 创建上传会话
-- `open_windbg_dump`：打开服务端本地 dump 或已上传 dump
-- `run_windbg_cmd`：对当前 dump 会话执行 WinDbg 命令
-- `close_windbg_dump`：关闭 dump 会话并清理资源
-- `list_windbg_dumps`：列出服务端本地目录中的 dump 文件
+- `open_windbg_dump`：分析已上传 dump 的会话
+- `run_windbg_cmd`：对当前上传 dump 会话执行 WinDbg 命令
+- `close_windbg_dump`：关闭上传 dump 会话并清理资源
+- `list_windbg_dumps`：可选工具，用于查看服务端本地目录中的 dump 文件，但不作为主分析入口
 
 ## 安装
 
@@ -59,14 +59,14 @@ crashdump-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://your-ho
 --verbose
 ```
 
-`--public-base-url` 用于返回完整 `upload_url`。如果不传，默认使用 `http://<host>:<port>`。
+`--public-base-url` 用于返回完整 `upload_url`。远端部署时必须显式配置为调用者可访问的 IP 或域名，否则 `create_upload_session` 会直接失败。
 
 ## 调用语义
 
-- 如果 dump 文件已经在**服务端机器**上，直接使用 `open_windbg_dump(dump_path=...)`。
-- 如果 dump 文件只在**客户端机器**上，先调用 `create_upload_session`，再对返回的 `upload_url` 发起 `PUT` 上传，最后用 `session_id` 打开。
-- 当 `dump_path` 或 `directory_path` 不存在时，错误含义也是“服务端机器上不存在”，不是客户端路径错误。
-- 如果服务端当前只能推导出 `0.0.0.0` 之类监听地址，`create_upload_session` 会直接失败并返回 `UPLOAD_URL_UNAVAILABLE`，提示你显式配置 `--public-base-url` 或 `CRASHDUMP_MCP_SERVER_BASE_URL`。
+- `create_upload_session` 是调用者唯一的起始步骤。
+- `open_windbg_dump`、`run_windbg_cmd`、`close_windbg_dump` 全部只接受 `session_id`。
+- 如果服务端没有显式配置 `--public-base-url` 或 `CRASHDUMP_MCP_SERVER_BASE_URL`，`create_upload_session` 会直接失败并返回 `UPLOAD_URL_UNAVAILABLE`。
+- 返回给调用者的 `upload_url` 必须是可直接访问的完整地址，例如 `http://192.168.253.128:8080/uploads/dumps/<session_id>`。
 
 ## 典型流程
 
@@ -89,7 +89,7 @@ crashdump-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://your-ho
   "servers": {
     "crashdump_mcp_server": {
       "type": "http",
-      "url": "http://localhost:8000/mcp"
+      "url": "http://192.168.253.128:8080/mcp"
     }
   }
 }
@@ -99,7 +99,7 @@ crashdump-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://your-ho
 
 | 变量 | 用途 | 默认值 |
 |------|------|--------|
-| `CRASHDUMP_MCP_SERVER_BASE_URL` | 返回 `upload_url` 时使用的对外基址 | `http://127.0.0.1:8000` |
+| `CRASHDUMP_MCP_SERVER_BASE_URL` | 返回 `upload_url` 时使用的对外基址 | 无默认值，远端部署时必须显式配置 |
 | `CRASHDUMP_MCP_UPLOAD_DIR` | 上传文件落盘目录 | `%PROGRAMDATA%\crashdump-mcp-server\uploads` 或系统临时目录 |
 | `CRASHDUMP_MCP_MAX_UPLOAD_MB` | 最大上传大小（MB） | `100` |
 | `CRASHDUMP_MCP_SESSION_TTL_SECONDS` | 空闲上传会话 TTL | `1800` |

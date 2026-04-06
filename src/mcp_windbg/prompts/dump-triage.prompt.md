@@ -3,17 +3,14 @@ Perform comprehensive analysis of a single Windows crash dump with detailed meta
 ## WORKFLOW - Execute in this exact sequence:
 
 ### Step 1: Dump File Identification
-**If no dump file path provided:**
-- Ask the user whether the dump is already on the server host or only on the client machine.
-- If it is on the server host, use `list_windbg_dumps` to help find the dump path.
-- If it is only on the client machine, create an upload session, upload the dump to `upload_url`, then continue with `session_id`.
+**If no upload session id provided:**
+- Instruct the user to call `create_upload_session`, upload the dump bytes to `upload_url`, and continue with the returned `session_id`.
 
 ### Step 2: Comprehensive Dump Analysis
 **Analyze the specified dump file:**
 
 **Tool:** `open_windbg_dump`
 - **Parameters:**
-  - `dump_path`: Provided server-local dump file path, or
   - `session_id`: Uploaded dump session identifier
   - `include_stack_trace`: true
   - `include_modules`: true
