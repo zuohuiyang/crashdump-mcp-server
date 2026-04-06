@@ -32,16 +32,18 @@
 - `close_windbg_dump`：关闭上传 dump 会话并清理资源
 - `list_windbg_dumps`：可选工具，用于查看服务端本地目录中的 dump 文件，但不作为主分析入口
 
-## 安装
+## 获取源码
 
 ```bash
-pip install crashdump-mcp-server
+git clone https://github.com/zuohuiyang/crashdump-mcp-server.git
+cd crashdump-mcp-server
+uv sync
 ```
 
 ## 启动
 
 ```bash
-crashdump-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://your-host:8000
+uv run crashdump-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://your-host:8000
 ```
 
 - MCP 入口：`http://your-host:8000/mcp`
