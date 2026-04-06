@@ -9,6 +9,7 @@ import traceback
 import winreg
 from contextlib import asynccontextmanager, contextmanager
 from typing import Dict, Optional, Tuple
+from urllib.parse import urlparse
 
 from . import upload_sessions
 from .cdb_session import CDBSession
@@ -45,9 +46,41 @@ UPLOAD_ERROR_INVALID_FORMAT = "INVALID_DUMP_FORMAT"
 UPLOAD_ERROR_INSUFFICIENT_STORAGE = "INSUFFICIENT_STORAGE"
 UPLOAD_ERROR_WRITE_FAILED = "UPLOAD_WRITE_FAILED"
 UPLOAD_ERROR_SESSION_NOT_FOUND = "UPLOAD_SESSION_NOT_FOUND"
+UPLOAD_ERROR_SESSION_EXPIRED = "UPLOAD_SESSION_EXPIRED"
 UPLOAD_ERROR_INVALID_STATE = "UPLOAD_SESSION_INVALID_STATE"
 UPLOAD_ERROR_TOO_MANY_SESSIONS = "UPLOAD_TOO_MANY_SESSIONS"
 UPLOAD_ERROR_UPLOAD_FAILED = "UPLOAD_FAILED"
+UPLOAD_ERROR_URL_UNAVAILABLE = "UPLOAD_URL_UNAVAILABLE"
+
+
+class UploadWorkflowError(RuntimeError):
+    """Structured upload workflow error."""
+
+    def __init__(
+        self,
+        *,
+        code: str,
+        message: str,
+        remediation: str,
+        details: Optional[Dict[str, object]] = None,
+        http_status: int = 400,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.remediation = remediation
+        self.details = details or {}
+        self.http_status = http_status
+
+    def to_payload(self) -> Dict[str, object]:
+        payload: Dict[str, object] = {
+            "code": self.code,
+            "message": self.message,
+            "remediation": self.remediation,
+        }
+        if self.details:
+            payload["details"] = self.details
+        return payload
 
 
 def _build_session_id(
@@ -194,17 +227,32 @@ def create_upload_session(file_name: str) -> Dict[str, object]:
     try:
         payload = upload_sessions.create_upload_session(file_name)
     except upload_sessions.UploadSessionLimitError as exc:
-        raise McpError(
-            ErrorData(
-                code=INVALID_PARAMS,
-                message=f"{UPLOAD_ERROR_TOO_MANY_SESSIONS}: {exc}",
-            )
+        raise UploadWorkflowError(
+            code=UPLOAD_ERROR_TOO_MANY_SESSIONS,
+            message=str(exc),
+            remediation="Close or wait for existing upload sessions before creating another one.",
+            http_status=409,
         ) from exc
     except ValueError as exc:
-        raise McpError(ErrorData(code=INVALID_PARAMS, message=str(exc))) from exc
+        raise UploadWorkflowError(
+            code=UPLOAD_ERROR_INVALID_FORMAT,
+            message=str(exc),
+            remediation="Use a supported dump filename with .dmp, .mdmp, or .hdmp extension.",
+        ) from exc
 
-    payload["upload_path"] = build_upload_path(payload["session_id"])
-    payload["upload_url"] = build_upload_url(payload["session_id"])
+    try:
+        payload["upload_url"] = build_upload_url(payload["session_id"])
+    except UploadWorkflowError:
+        upload_sessions.close_upload_session(payload["session_id"])
+        raise
+    payload["next_steps"] = [
+        "PUT upload_url with raw dump bytes",
+        f"call open_windbg_dump(session_id={payload['session_id']})",
+    ]
+    payload["upload_instructions"] = (
+        "Upload the raw dump bytes to upload_url with HTTP PUT, "
+        "then call open_windbg_dump(session_id=...) to analyze it."
+    )
     return payload
 
 
@@ -215,7 +263,48 @@ def acquire_uploaded_session_for_tool(session_id: str) -> UploadSessionMetadata:
         for_analysis=True,
     )
     if metadata is None:
-        raise McpError(ErrorData(code=INVALID_PARAMS, message=error_message))
+        if error_message == "Upload session not found":
+            raise UploadWorkflowError(
+                code=UPLOAD_ERROR_SESSION_NOT_FOUND,
+                message=error_message,
+                remediation="Create a new upload session and upload the dump again.",
+                details={"session_id": session_id},
+                http_status=404,
+            )
+        if error_message == "Upload session has expired":
+            raise UploadWorkflowError(
+                code=UPLOAD_ERROR_SESSION_EXPIRED,
+                message=error_message,
+                remediation="Create a new upload session because the previous one expired.",
+                details={"session_id": session_id},
+                http_status=409,
+            )
+        if error_message == "Upload session is currently being analyzed":
+            raise UploadWorkflowError(
+                code=UPLOAD_ERROR_INVALID_STATE,
+                message=error_message,
+                remediation="Wait for the current analysis to finish, then retry the command.",
+                details={"session_id": session_id, "current_status": "analyzing"},
+                http_status=409,
+            )
+        if "expected uploaded" in error_message:
+            current_status = "unknown"
+            if "state is " in error_message:
+                current_status = error_message.split("state is ", 1)[1].split(",", 1)[0].strip()
+            raise UploadWorkflowError(
+                code=UPLOAD_ERROR_INVALID_STATE,
+                message="Upload not completed yet",
+                remediation="Finish PUT upload to upload_url, then retry open_windbg_dump(session_id=...).",
+                details={"session_id": session_id, "current_status": current_status},
+                http_status=409,
+            )
+        raise UploadWorkflowError(
+            code=UPLOAD_ERROR_INVALID_STATE,
+            message=error_message,
+            remediation="Retry after the upload session becomes available.",
+            details={"session_id": session_id},
+            http_status=409,
+        )
     return metadata
 
 
@@ -237,7 +326,34 @@ def configure_public_base_url(
 
 
 def build_upload_url(session_id: str) -> str:
+    parsed = urlparse(public_base_url)
+    hostname = (parsed.hostname or "").strip().lower()
+    if not parsed.scheme or not parsed.netloc or hostname in {"0.0.0.0", "::"}:
+        raise UploadWorkflowError(
+            code=UPLOAD_ERROR_URL_UNAVAILABLE,
+            message="upload URL cannot be derived from wildcard or missing public base URL",
+            remediation="Configure CRASHDUMP_MCP_SERVER_BASE_URL or --public-base-url with a client-reachable address.",
+            details={"public_base_url": public_base_url},
+            http_status=500,
+        )
     return f"{public_base_url}{build_upload_path(session_id)}"
+
+
+def _upload_error_payload(
+    code: str,
+    message: str,
+    *,
+    remediation: str,
+    details: Optional[Dict[str, object]] = None,
+) -> Dict[str, object]:
+    payload: Dict[str, object] = {
+        "code": code,
+        "message": message,
+        "remediation": remediation,
+    }
+    if details:
+        payload["details"] = details
+    return payload
 
 
 async def _stream_upload_to_file(
@@ -524,10 +640,17 @@ def create_http_app(
     async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
         await session_manager.handle_request(scope, receive, send)
 
-    def upload_error(status_code: int, code: str, message: str) -> JSONResponse:
+    def upload_error(
+        status_code: int,
+        code: str,
+        message: str,
+        *,
+        remediation: str,
+        details: Optional[Dict[str, object]] = None,
+    ) -> JSONResponse:
         return JSONResponse(
             status_code=status_code,
-            content={"error": {"code": code, "message": message}},
+            content={"error": _upload_error_payload(code, message, remediation=remediation, details=details)},
         )
 
     async def upload_dump(request: Request) -> JSONResponse:
@@ -536,15 +659,43 @@ def create_http_app(
             session_id, upload_runtime_config.session_ttl_seconds
         )
         if metadata is None:
-            if error_kind in {"busy", "invalid_state", "expired"}:
-                return upload_error(409, UPLOAD_ERROR_INVALID_STATE, error_message)
-            return upload_error(404, UPLOAD_ERROR_SESSION_NOT_FOUND, error_message)
+            if error_kind == "expired":
+                return upload_error(
+                    409,
+                    UPLOAD_ERROR_SESSION_EXPIRED,
+                    error_message,
+                    remediation="Create a new upload session and retry the upload.",
+                    details={"session_id": session_id},
+                )
+            if error_kind in {"busy", "invalid_state"}:
+                return upload_error(
+                    409,
+                    UPLOAD_ERROR_INVALID_STATE,
+                    error_message,
+                    remediation="Create a new upload session if the previous upload is stuck, or wait and retry.",
+                    details={"session_id": session_id},
+                )
+            return upload_error(
+                404,
+                UPLOAD_ERROR_SESSION_NOT_FOUND,
+                error_message,
+                remediation="Create a new upload session before uploading.",
+                details={"session_id": session_id},
+            )
 
-        def fail_upload(status_code: int, code: str, message: str, *, log_unexpected: bool = False) -> JSONResponse:
+        def fail_upload(
+            status_code: int,
+            code: str,
+            message: str,
+            *,
+            remediation: str,
+            details: Optional[Dict[str, object]] = None,
+            log_unexpected: bool = False,
+        ) -> JSONResponse:
             upload_sessions.mark_upload_failed(metadata)
             if log_unexpected:
                 logger.exception("Unexpected upload failure for session %s", session_id)
-            return upload_error(status_code, code, message)
+            return upload_error(status_code, code, message, remediation=remediation, details=details)
 
         try:
             max_bytes = upload_runtime_config.max_upload_mb * 1024 * 1024
@@ -562,17 +713,44 @@ def create_http_app(
                     413,
                     UPLOAD_ERROR_TOO_LARGE,
                     f"Upload exceeds limit ({upload_runtime_config.max_upload_mb}MB)",
+                    remediation="Use a smaller dump file or increase CRASHDUMP_MCP_MAX_UPLOAD_MB on the server.",
+                    details={"session_id": session_id, "max_upload_mb": upload_runtime_config.max_upload_mb},
                 )
-            return fail_upload(400, UPLOAD_ERROR_INVALID_FORMAT, "Invalid dump upload payload")
+            return fail_upload(
+                400,
+                UPLOAD_ERROR_INVALID_FORMAT,
+                "Invalid dump upload payload",
+                remediation="Upload the raw bytes of a supported .dmp, .mdmp, or .hdmp file.",
+                details={"session_id": session_id},
+            )
         except OSError as exc:
             if exc.errno == errno.ENOSPC:
-                return fail_upload(507, UPLOAD_ERROR_INSUFFICIENT_STORAGE, "Insufficient storage space")
-            return fail_upload(500, UPLOAD_ERROR_WRITE_FAILED, f"Upload write failure: {exc}")
+                return fail_upload(
+                    507,
+                    UPLOAD_ERROR_INSUFFICIENT_STORAGE,
+                    "Insufficient storage space",
+                    remediation="Free disk space on the server upload directory and retry.",
+                    details={"session_id": session_id},
+                )
+            return fail_upload(
+                500,
+                UPLOAD_ERROR_WRITE_FAILED,
+                f"Upload write failure: {exc}",
+                remediation="Check server upload directory permissions and storage health, then retry.",
+                details={"session_id": session_id},
+            )
         except asyncio.CancelledError:
             upload_sessions.mark_upload_failed(metadata)
             raise
         except Exception:
-            return fail_upload(500, UPLOAD_ERROR_UPLOAD_FAILED, "Unexpected upload failure", log_unexpected=True)
+            return fail_upload(
+                500,
+                UPLOAD_ERROR_UPLOAD_FAILED,
+                "Unexpected upload failure",
+                remediation="Retry the upload. If the problem persists, inspect server logs.",
+                details={"session_id": session_id},
+                log_unexpected=True,
+            )
         finally:
             upload_sessions.release_upload_lock(metadata)
 
@@ -637,7 +815,7 @@ def _create_server(
                 name="create_upload_session",
                 description="""
                 Create a server-side upload session for a supported crash dump file (*.dmp, *.mdmp, *.hdmp).
-                Returns upload_path and upload_url for an HTTP PUT upload.
+                Returns a client-reachable upload_url for an HTTP PUT upload.
                 Use this when the dump file only exists on the MCP client machine.
                 """,
                 inputSchema=CreateUploadSessionParams.model_json_schema(),
@@ -843,6 +1021,13 @@ def _create_server(
                 message=f"Unknown tool: {name}"
             ))
 
+        except UploadWorkflowError as exc:
+            raise McpError(
+                ErrorData(
+                    code=INVALID_PARAMS,
+                    message=json.dumps({"error": exc.to_payload()}),
+                )
+            ) from exc
         except McpError:
             raise
         except Exception as e:

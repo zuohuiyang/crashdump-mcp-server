@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -92,6 +93,56 @@ def test_run_windbg_cmd_uses_uploaded_session():
     assert result.isError is False
     assert "fake:kb" in result.content[0].text
     assert _FakeSession.created == 1
+
+
+def test_open_windbg_dump_returns_structured_error_when_upload_not_completed():
+    payload = server.create_upload_session("pending.dmp")
+
+    app_server = server._create_server()
+    handler = app_server.request_handlers[CallToolRequest]
+    request = CallToolRequest(
+        method="tools/call",
+        params={
+            "name": "open_windbg_dump",
+            "arguments": {
+                "session_id": payload["session_id"],
+                "include_stack_trace": False,
+                "include_modules": False,
+                "include_threads": False,
+            },
+        },
+    )
+
+    result = asyncio.run(handler(request)).root
+
+    assert result.isError is True
+    error_payload = json.loads(result.content[0].text)["error"]
+    assert error_payload["code"] == server.UPLOAD_ERROR_INVALID_STATE
+    assert error_payload["details"]["current_status"] == "pending"
+    assert "Finish PUT upload" in error_payload["remediation"]
+
+
+def test_create_upload_session_tool_returns_structured_error_for_unusable_upload_url():
+    server.configure_public_base_url(explicit_base_url="http://0.0.0.0:8000")
+
+    app_server = server._create_server()
+    handler = app_server.request_handlers[CallToolRequest]
+    request = CallToolRequest(
+        method="tools/call",
+        params={
+            "name": "create_upload_session",
+            "arguments": {
+                "file_name": "pending.dmp",
+            },
+        },
+    )
+
+    result = asyncio.run(handler(request)).root
+
+    assert result.isError is True
+    error_payload = json.loads(result.content[0].text)["error"]
+    assert error_payload["code"] == server.UPLOAD_ERROR_URL_UNAVAILABLE
+    assert "public-base-url" in error_payload["remediation"]
 
 
 def test_close_windbg_dump_closes_uploaded_session_and_removes_temp_file():
