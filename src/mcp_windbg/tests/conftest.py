@@ -10,6 +10,7 @@ def restore_upload_runtime_state():
     original_session_ttl = server.upload_runtime_config.session_ttl_seconds
     original_max_active_sessions = server.upload_runtime_config.max_active_sessions
     original_initialized_dir = server.upload_sessions._initialized_upload_dir
+    original_public_base_url = server.public_base_url
 
     server.cleanup_sessions()
     try:
@@ -21,6 +22,7 @@ def restore_upload_runtime_state():
         server.upload_runtime_config.session_ttl_seconds = original_session_ttl
         server.upload_runtime_config.max_active_sessions = original_max_active_sessions
         server.upload_sessions._initialized_upload_dir = original_initialized_dir
+        server.public_base_url = original_public_base_url
 
 
 @pytest.fixture

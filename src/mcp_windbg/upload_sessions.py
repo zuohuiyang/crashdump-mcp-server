@@ -14,6 +14,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_UPLOAD_MB = 100
 DEFAULT_SESSION_TTL_SECONDS = 1800
 DEFAULT_MAX_ACTIVE_SESSIONS = 10
+UPLOAD_DIR_ENV = "CRASHDUMP_MCP_UPLOAD_DIR"
+LEGACY_UPLOAD_DIR_ENV = "WINDBG_UPLOAD_DIR"
+MAX_UPLOAD_MB_ENV = "CRASHDUMP_MCP_MAX_UPLOAD_MB"
+LEGACY_MAX_UPLOAD_MB_ENV = "WINDBG_MAX_UPLOAD_MB"
+SESSION_TTL_ENV = "CRASHDUMP_MCP_SESSION_TTL_SECONDS"
+LEGACY_SESSION_TTL_ENV = "WINDBG_SESSION_TTL_SECONDS"
+MAX_ACTIVE_SESSIONS_ENV = "CRASHDUMP_MCP_MAX_ACTIVE_SESSIONS"
+LEGACY_MAX_ACTIVE_SESSIONS_ENV = "WINDBG_MAX_ACTIVE_SESSIONS"
 MINIDUMP_SIGNATURE = b"MDMP"
 PAGE_DUMP_SIGNATURE = b"PAGE"
 SUPPORTED_DUMP_SIGNATURES = {
@@ -82,19 +90,29 @@ _upload_storage_lock = threading.Lock()
 _initialized_upload_dir: Optional[str] = None
 
 
-def _load_positive_int_env(name: str, default: int) -> int:
-    raw = os.getenv(name)
+def _get_env_value(primary_name: str, legacy_name: Optional[str] = None) -> Optional[str]:
+    for name in (primary_name, legacy_name):
+        if not name:
+            continue
+        raw = os.getenv(name)
+        if raw is not None and raw.strip() != "":
+            return raw
+    return None
+
+
+def _load_positive_int_env(primary_name: str, default: int, legacy_name: Optional[str] = None) -> int:
+    raw = _get_env_value(primary_name, legacy_name)
     if raw is None or raw.strip() == "":
         return default
 
     try:
         value = int(raw)
     except ValueError:
-        logger.warning("Invalid integer in %s=%r, using default=%d", name, raw, default)
+        logger.warning("Invalid integer in %s=%r, using default=%d", primary_name, raw, default)
         return default
 
     if value <= 0:
-        logger.warning("Non-positive value in %s=%r, using default=%d", name, raw, default)
+        logger.warning("Non-positive value in %s=%r, using default=%d", primary_name, raw, default)
         return default
 
     return value
@@ -103,18 +121,18 @@ def _load_positive_int_env(name: str, default: int) -> int:
 def _default_upload_dir() -> str:
     program_data = os.getenv("PROGRAMDATA")
     if program_data:
-        return str(Path(program_data) / "mcp-windbg" / "uploads")
+        return str(Path(program_data) / "crashdump-mcp-server" / "uploads")
 
-    return str(Path(tempfile.gettempdir()) / "mcp-windbg" / "uploads")
+    return str(Path(tempfile.gettempdir()) / "crashdump-mcp-server" / "uploads")
 
 
 def load_upload_runtime_config() -> UploadRuntimeConfig:
-    upload_dir = os.getenv("WINDBG_UPLOAD_DIR", "").strip() or _default_upload_dir()
+    upload_dir = (_get_env_value(UPLOAD_DIR_ENV, LEGACY_UPLOAD_DIR_ENV) or "").strip() or _default_upload_dir()
     return UploadRuntimeConfig(
         upload_dir=os.path.abspath(upload_dir),
-        max_upload_mb=_load_positive_int_env("WINDBG_MAX_UPLOAD_MB", DEFAULT_MAX_UPLOAD_MB),
-        session_ttl_seconds=_load_positive_int_env("WINDBG_SESSION_TTL_SECONDS", DEFAULT_SESSION_TTL_SECONDS),
-        max_active_sessions=_load_positive_int_env("WINDBG_MAX_ACTIVE_SESSIONS", DEFAULT_MAX_ACTIVE_SESSIONS),
+        max_upload_mb=_load_positive_int_env(MAX_UPLOAD_MB_ENV, DEFAULT_MAX_UPLOAD_MB, LEGACY_MAX_UPLOAD_MB_ENV),
+        session_ttl_seconds=_load_positive_int_env(SESSION_TTL_ENV, DEFAULT_SESSION_TTL_SECONDS, LEGACY_SESSION_TTL_ENV),
+        max_active_sessions=_load_positive_int_env(MAX_ACTIVE_SESSIONS_ENV, DEFAULT_MAX_ACTIVE_SESSIONS, LEGACY_MAX_ACTIVE_SESSIONS_ENV),
     )
 
 
@@ -128,7 +146,7 @@ def ensure_controlled_upload_dir(upload_dir: str) -> str:
     try:
         with tempfile.NamedTemporaryFile(
             dir=path,
-            prefix=".mcp_windbg_write_probe_",
+            prefix=".crashdump_mcp_server_write_probe_",
             delete=False,
         ) as probe:
             probe_file = Path(probe.name)

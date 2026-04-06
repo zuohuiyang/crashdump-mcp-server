@@ -1,234 +1,98 @@
-# MCP Server for WinDbg Crash Analysis
+# CrashDump MCP Server
 
-A Model Context Protocol server that bridges AI models with WinDbg for crash dump analysis and remote debugging.
+用于**远程 Windows Crash Dump 分析**的 MCP Server，基于 WinDbg/CDB 提供上传、打开、分析和后续命令执行能力。
 
-<!-- mcp-name: io.github.svnscha/mcp-windbg -->
+<!-- mcp-name: io.github.zuohuiyang/crashdump-mcp-server -->
 
-## Overview
+## 项目定位
 
-This MCP server integrates with [CDB](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/opening-a-crash-dump-file-using-cdb) to enable AI models to analyze Windows crash dumps and connect to remote debugging sessions using WinDbg/CDB.
+- 这是一个 **server-first** 的 MCP 服务，不再把自己定位为本地 WinDbg 工具集合。
+- 核心场景只有一条主链路：`上传 dump -> 打开分析 -> 执行补充命令 -> 关闭会话`。
+- `dump_path` 永远按**服务端机器**的文件系统解释，不按 MCP 客户端所在机器解释。
 
-## What is this?
+## 能力范围
 
-An AI-powered tool that bridges LLMs with WinDbg for crash dump analysis and live debugging. Execute debugger commands through natural language queries like *"Show me the call stack and explain this access violation"*.
+- `create_upload_session`：为客户端本地 dump 创建上传会话
+- `open_windbg_dump`：打开服务端本地 dump 或已上传 dump
+- `run_windbg_cmd`：对当前 dump 会话执行 WinDbg 命令
+- `close_windbg_dump`：关闭 dump 会话并清理资源
+- `list_windbg_dumps`：列出服务端本地目录中的 dump 文件
 
-## What This is Not
+## 安装
 
-Not a magical auto-fix solution. It's a Python wrapper around CDB that leverages LLM knowledge to assist with debugging.
-
-## Usage Modes
-
-- **Crash Dump Analysis**: Examine Windows crash dumps
-- **Live Debugging**: Connect to remote debugging targets
-- **Directory Analysis**: Process multiple dumps for patterns
-
-## Quick Start
-
-### Prerequisites
-- Windows with [Debugging Tools for Windows](https://developer.microsoft.com/en-us/windows/downloads/windows-sdk/) or [WinDbg from Microsoft Store](https://apps.microsoft.com/detail/9pgjgd53tn86).
-- Python 3.10 or higher
-- Any MCP-compatible client (GitHub Copilot, Claude Desktop, Cline, Cursor, Windsurf etc.)
-- Configure MCP server in your chosen client
-
-> [!TIP]
-> In enterprise environments, MCP server usage might be restricted by organizational policies. Check with your IT team about AI tool usage and ensure you have the necessary permissions before proceeding.
-
-### Installation
 ```bash
-pip install mcp-windbg
+pip install crashdump-mcp-server
 ```
 
-## Transport Options
+## 启动
 
-The MCP server supports multiple transport protocols:
-
-| Transport | Description | Use Case |
-|-----------|-------------|----------|
-| `stdio` (default) | Standard input/output | Local MCP clients like VS Code, Claude Desktop |
-| `streamable-http` | Streamable HTTP | Modern HTTP clients with bidirectional streaming |
-
-### Starting with Different Transports
-
-**Standard I/O (default):**
 ```bash
-mcp-windbg
-# or explicitly
-mcp-windbg --transport stdio
+crashdump-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://your-host:8000
 ```
 
-**Streamable HTTP:**
-```bash
-mcp-windbg --transport streamable-http --host 127.0.0.1 --port 8000
-```
-Endpoint: `http://127.0.0.1:8000/mcp`
+- MCP 入口：`http://your-host:8000/mcp`
+- 上传入口：`http://your-host:8000/uploads/dumps/{session_id}`
 
-The HTTP transport also enables binary dump uploads through `PUT /uploads/dumps/{session_id}` after calling `create_upload_session`.
+### 命令行参数
 
-### Command Line Options
-
-```
---transport {stdio,streamable-http}  Transport protocol (default: stdio)
---host HOST                              HTTP server host (default: 127.0.0.1)
---port PORT                              HTTP server port (default: 8000)
---cdb-path PATH                          Custom path to cdb.exe
---symbols-path PATH                      Custom symbols path
---timeout SECONDS                        Command timeout (default: 30)
---verbose                                Enable verbose output
+```text
+--host HOST
+--port PORT
+--public-base-url URL
+--cdb-path PATH
+--symbols-path PATH
+--timeout SECONDS
+--verbose
 ```
 
+`--public-base-url` 用于返回完整 `upload_url`。如果不传，默认使用 `http://<host>:<port>`。
 
-## Configuration for Visual Studio Code
+## 调用语义
 
-To make MCP servers available in all your workspaces, use the global user configuration:
+- 如果 dump 文件已经在**服务端机器**上，直接使用 `open_windbg_dump(dump_path=...)`。
+- 如果 dump 文件只在**客户端机器**上，先调用 `create_upload_session`，再对返回的 `upload_url` 发起 `PUT` 上传，最后用 `session_id` 打开。
+- 当 `dump_path` 或 `directory_path` 不存在时，错误含义也是“服务端机器上不存在”，不是客户端路径错误。
 
-1. Press `F1`, type `>` and select **MCP: Open User Configuration**.
-2. Paste the following JSON snippet into your user configuration:
+## 典型流程
+
+1. 调用 `create_upload_session(file_name="crash.dmp")`
+2. 读取结果中的 `upload_url`
+3. 对 `upload_url` 发送原始 dump 二进制 `PUT`
+4. 调用 `open_windbg_dump(session_id="...")`
+5. 按需调用 `run_windbg_cmd(session_id="...", command="kb")`
+6. 完成后调用 `close_windbg_dump(session_id="...")`
+
+## VS Code 配置示例
 
 ```json
 {
-    "servers": {
-        "mcp_windbg": {
-            "type": "stdio",
-            "command": "python",
-            "args": ["-m", "mcp_windbg"],
-            "env": {
-                "_NT_SYMBOL_PATH": "SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols"
-            }
-        }
+  "servers": {
+    "crashdump_mcp_server": {
+      "type": "http",
+      "url": "http://localhost:8000/mcp"
     }
+  }
 }
 ```
 
-This enables MCP Windbg in any workspace, without needing a local `.vscode/mcp.json` file.
+## 环境变量
 
-### HTTP Transport Configuration
+| 变量 | 用途 | 默认值 |
+|------|------|--------|
+| `CRASHDUMP_MCP_SERVER_BASE_URL` | 返回 `upload_url` 时使用的对外基址 | `http://127.0.0.1:8000` |
+| `CRASHDUMP_MCP_UPLOAD_DIR` | 上传文件落盘目录 | `%PROGRAMDATA%\crashdump-mcp-server\uploads` 或系统临时目录 |
+| `CRASHDUMP_MCP_MAX_UPLOAD_MB` | 最大上传大小（MB） | `100` |
+| `CRASHDUMP_MCP_SESSION_TTL_SECONDS` | 空闲上传会话 TTL | `1800` |
+| `CRASHDUMP_MCP_MAX_ACTIVE_SESSIONS` | 最大活跃上传会话数 | `10` |
 
-For scenarios where you need to run the MCP server separately (e.g., remote access, shared server, or debugging the server itself), you can use the HTTP transport:
+为兼容旧部署，当前仍接受旧版 `WINDBG_*` 上传环境变量。
 
-**1. Start the server manually:**
-```bash
-python -m mcp_windbg --transport streamable-http --host 127.0.0.1 --port 8000
-```
+## 归因说明
 
-**2. Configure VS Code to connect via HTTP:**
-```json
-{
-    "servers": {
-        "mcp_windbg_http": {
-            "type": "http",
-            "url": "http://localhost:8000/mcp"
-        }
-    }
-}
-```
-
-> **Workspace-specific and alternative configuration**: See [Installation documentation](https://github.com/svnscha/mcp-windbg/wiki/Installation) for details on configuring Claude Desktop, Cline, and other clients, or for workspace-only setup.
-
-Once configured, restart your MCP client and start debugging:
-
-```
-Analyze the crash dump at C:\dumps\app.dmp
-```
-
-### Upload Workflow
-
-Upload-based dump analysis is available when the server runs with `streamable-http`.
-
-The upload workflow is only available over the `streamable-http` transport.
-The `session_id` variants of `open_windbg_dump`, `run_windbg_cmd`, and `close_windbg_dump` are only exposed in that transport mode.
-
-1. Call `create_upload_session` with a supported dump file name such as `crash.dmp`, `crash.mdmp`, or `crash.hdmp`
-2. Read `upload_path` from the tool result and combine it with your MCP server base URL
-3. Upload the raw dump bytes with `PUT {server_base_url}{upload_path}`
-4. Reuse the uploaded dump with `open_windbg_dump(session_id=...)`
-5. Use `run_windbg_cmd(session_id=...)` for follow-up debugger commands when needed
-6. Call `close_windbg_dump(session_id=...)` when analysis is complete
-
-`create_upload_session` returns `upload_path`, which is the HTTP path exposed by this server for the binary `PUT` upload. Clients should combine it with the externally reachable server base URL.
-
-The server stores uploads under `WINDBG_UPLOAD_DIR` using a unique prefix plus the original file name, for example `abc123-crash.mdmp`.
-
-Upload session behavior:
-
-- A successful upload stays available until it expires or `close_windbg_dump(session_id=...)` is called.
-- Accessing an expired uploaded session fails and the server cleans up its temporary resources.
-- `close_windbg_dump(session_id=...)` is rejected while the session is uploading or being analyzed by `open_windbg_dump` / `run_windbg_cmd`.
-- Failed uploads delete the temporary dump and invalidate the `session_id` immediately. Clients must create a new upload session before retrying.
-
-### Upload Environment Variables
-
-These options are primarily relevant for the `streamable-http` transport:
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `WINDBG_UPLOAD_DIR` | Directory used for temporary uploaded dump storage | `%PROGRAMDATA%\mcp-windbg\uploads` or the system temp directory |
-| `WINDBG_MAX_UPLOAD_MB` | Maximum accepted upload size in megabytes | `100` |
-| `WINDBG_SESSION_TTL_SECONDS` | Time-to-live for inactive upload sessions | `1800` |
-| `WINDBG_MAX_ACTIVE_SESSIONS` | Maximum number of active upload sessions | `10` |
-
-## MCP Compatibility
-
-This server implements the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/), making it compatible with any MCP-enabled client:
-
-The beauty of MCP is that you write the server once, and it works everywhere. Choose your favorite AI assistant!
-
-### Tools
-
-| Tool | Purpose | Use Case |
-|------|---------|----------|
-| [`list_windbg_dumps`](https://github.com/svnscha/mcp-windbg/wiki/Tools#list_windbg_dumps) | List crash dump files | Discovery and batch analysis |
-| [`open_windbg_dump`](https://github.com/svnscha/mcp-windbg/wiki/Tools#open_windbg_dump) | Analyze crash dumps | Initial crash dump analysis |
-| [`close_windbg_dump`](https://github.com/svnscha/mcp-windbg/wiki/Tools#close_windbg_dump) | Cleanup dump sessions | Resource management |
-| [`open_windbg_remote`](https://github.com/svnscha/mcp-windbg/wiki/Tools#open_windbg_remote) | Connect to remote debugging | Live debugging sessions |
-| [`close_windbg_remote`](https://github.com/svnscha/mcp-windbg/wiki/Tools#close_windbg_remote) | Cleanup remote sessions | Resource management |
-| `create_upload_session` | Create a temporary upload session | Streamable HTTP-only dump upload workflow |
-| [`run_windbg_cmd`](https://github.com/svnscha/mcp-windbg/wiki/Tools#run_windbg_cmd) | Execute WinDbg commands | Custom analysis and investigation |
-| [`send_ctrl_break`](https://github.com/svnscha/mcp-windbg/wiki/Tools#send_ctrl_break) | Break into a running target | Interrupt execution during live debugging |
-
-## Documentation
-
-**[Documentation](https://github.com/svnscha/mcp-windbg/wiki)**
-
-| Topic | Description |
-|-------|-------------|
-| **[Getting Started](https://github.com/svnscha/mcp-windbg/wiki/Getting-Started)** | Quick setup and first steps |
-| **[Installation](https://github.com/svnscha/mcp-windbg/wiki/Installation)** | Detailed installation for pip, MCP registry, and from source |
-| **[Usage](https://github.com/svnscha/mcp-windbg/wiki/Usage)** | MCP client integration, command-line usage, and workflows |
-| **[Tools Reference](https://github.com/svnscha/mcp-windbg/wiki/Tools)** | Complete API reference and examples |
-| **[Troubleshooting](https://github.com/svnscha/mcp-windbg/wiki/Troubleshooting)** | Common issues and solutions |
-
-## Examples
-
-### Crash Dump Analysis
-
-> Analyze this heap address with !heap -p -a 0xABCD1234 and check for buffer overflow"
-
-> Execute !peb and tell me if there are any environment variables that might affect this crash"
-
-> Run .ecxr followed by k and explain the exception's root cause"
-
-### Remote Debugging
-
-> "Connect to tcp:Port=5005,Server=192.168.0.100 and show me the current thread state"
-
-> "Send CTRL+BREAK to the live session, then dump all thread stacks with ~*k"
-
-> "Check for timing issues in the thread pool with !runaway and !threads"
-
-> "Show me all threads with ~*k and identify which one is causing the hang"
-
-## Blog
-
-Read about the development journey: [The Future of Crash Analysis: AI Meets WinDbg](https://svnscha.de/posts/ai-meets-windbg/)
-
-### Links
-
-- [Reddit: I taught Copilot to analyze Windows Crash Dumps](https://www.reddit.com/r/programming/comments/1kes3wq/i_taught_copilot_to_analyze_windows_crash_dumps/)
-- [Hackernews: AI Meets WinDbg](https://news.ycombinator.com/item?id=43892096)
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=svnscha/mcp-windbg&type=Date)](https://www.star-history.com/#svnscha/mcp-windbg&Date)
+- 本项目基于上游 `svnscha/mcp-windbg` fork 并持续修改。
+- 上游项目采用 MIT License，本项目继续沿用 MIT License。
+- 当前维护仓库：`https://github.com/zuohuiyang/mcp-windbg`
+- 上游仓库：`https://github.com/svnscha/mcp-windbg`
 
 ## License
 

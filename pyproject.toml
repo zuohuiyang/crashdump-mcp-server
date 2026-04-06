@@ -1,11 +1,12 @@
 [project]
-name = "mcp-windbg"
+name = "crashdump-mcp-server"
 version = "0.13.0"
-description = "A Model Context Protocol server providing tools to analyze Windows crash dumps using WinDbg/CDB"
+description = "A Model Context Protocol server for remote Windows crash dump analysis using WinDbg/CDB"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "svnscha" }]
-keywords = ["windbg", "cdb", "mcp", "llm", "crash-analysis"]
+maintainers = [{ name = "zuohuiyang" }]
+keywords = ["crashdump", "windbg", "cdb", "mcp", "server"]
 license = "MIT"
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -24,8 +25,13 @@ dependencies = [
     "uvicorn>=0.42.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/zuohuiyang/mcp-windbg"
+Repository = "https://github.com/zuohuiyang/mcp-windbg"
+Upstream = "https://github.com/svnscha/mcp-windbg"
+
 [project.scripts]
-mcp-windbg = "mcp_windbg:main"
+crashdump-mcp-server = "mcp_windbg:main"
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]

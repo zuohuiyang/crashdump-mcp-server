@@ -17,11 +17,13 @@ def upload_test_env(configure_upload_runtime):
 
 
 def test_create_upload_session_returns_upload_target():
+    server.configure_public_base_url(explicit_base_url="http://crashdump.local:8000")
     payload = server.create_upload_session("crash.dmp")
 
     assert payload["session_id"]
     assert payload["upload_path"].startswith("/uploads/dumps/")
     assert payload["upload_path"].endswith(payload["session_id"])
+    assert payload["upload_url"] == f"http://crashdump.local:8000{payload['upload_path']}"
 
     metadata = server.session_registry.upload_sessions[payload["session_id"]]
     assert metadata.original_file_name == "crash.dmp"
@@ -29,6 +31,7 @@ def test_create_upload_session_returns_upload_target():
 
 
 def test_put_upload_dump_succeeds_and_marks_session_uploaded():
+    server.configure_public_base_url(explicit_base_url="http://crashdump.local:8000")
     payload = server.create_upload_session("uploaded.dmp")
     app = server.create_http_app()
 
@@ -43,6 +46,7 @@ def test_put_upload_dump_succeeds_and_marks_session_uploaded():
 
 
 def test_put_upload_dump_rejects_invalid_signature_and_rolls_back():
+    server.configure_public_base_url(explicit_base_url="http://crashdump.local:8000")
     payload = server.create_upload_session("bad.dmp")
     metadata = server.session_registry.upload_sessions[payload["session_id"]]
     app = server.create_http_app()
@@ -56,6 +60,7 @@ def test_put_upload_dump_rejects_invalid_signature_and_rolls_back():
 
 
 def test_put_upload_dump_rolls_back_on_cancellation(monkeypatch):
+    server.configure_public_base_url(explicit_base_url="http://crashdump.local:8000")
     payload = server.create_upload_session("cancelled.dmp")
     metadata = server.session_registry.upload_sessions[payload["session_id"]]
     app = server.create_http_app()

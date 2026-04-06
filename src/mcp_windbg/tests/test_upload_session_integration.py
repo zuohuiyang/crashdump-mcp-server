@@ -47,7 +47,7 @@ def _mark_uploaded_dump(file_name: str):
 def test_open_windbg_dump_tool_uses_uploaded_session():
     payload, _metadata = _mark_uploaded_dump("uploaded.dmp")
 
-    app_server = server._create_server(enable_upload_tools=True)
+    app_server = server._create_server()
     handler = app_server.request_handlers[CallToolRequest]
     request = CallToolRequest(
         method="tools/call",
@@ -74,7 +74,7 @@ def test_open_windbg_dump_tool_uses_uploaded_session():
 def test_run_windbg_cmd_uses_uploaded_session():
     payload, _metadata = _mark_uploaded_dump("command.dmp")
 
-    app_server = server._create_server(enable_upload_tools=True)
+    app_server = server._create_server()
     handler = app_server.request_handlers[CallToolRequest]
     request = CallToolRequest(
         method="tools/call",

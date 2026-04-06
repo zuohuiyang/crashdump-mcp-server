@@ -1,4 +1,4 @@
-"""Prompts package for mcp-windbg."""
+"""Prompts package for crashdump-mcp-server."""
 
 from pathlib import Path
 

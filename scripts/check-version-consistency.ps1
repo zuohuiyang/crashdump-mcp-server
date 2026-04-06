@@ -48,7 +48,7 @@ try {
         throw "CHANGELOG.md not found in current directory"
     }
     
-    $changelogMatch = Select-String -Path "CHANGELOG.md" -Pattern '## \[([^\]]+)\]' | Select-Object -First 1
+    $changelogMatch = Select-String -Path "CHANGELOG.md" -Pattern '## \[(\d+\.\d+\.\d+)\]' | Select-Object -First 1
     if (-not $changelogMatch) {
         throw "Could not find version in CHANGELOG.md"
     }

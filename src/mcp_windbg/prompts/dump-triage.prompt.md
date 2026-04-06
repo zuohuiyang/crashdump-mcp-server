@@ -4,22 +4,24 @@ Perform comprehensive analysis of a single Windows crash dump with detailed meta
 
 ### Step 1: Dump File Identification
 **If no dump file path provided:**
-- Ask user to provide the specific crash dump file path, use `list_windbg_dumps` to help them find available dumps.
+- Ask the user whether the dump is already on the server host or only on the client machine.
+- If it is on the server host, use `list_windbg_dumps` to help find the dump path.
+- If it is only on the client machine, create an upload session, upload the dump to `upload_url`, then continue with `session_id`.
 
 ### Step 2: Comprehensive Dump Analysis
 **Analyze the specified dump file:**
 
 **Tool:** `open_windbg_dump`
 - **Parameters:**
-  - `dump_path`: Provided dump file path
+  - `dump_path`: Provided server-local dump file path, or
+  - `session_id`: Uploaded dump session identifier
   - `include_stack_trace`: true
   - `include_modules`: true
   - `include_threads`: true
 
 The `open_windbg_dump` tool automatically runs `!analyze -v` and provides initial analysis output.
 
-If the dump is very large (>5GB) or analysis takes too long we eventually timeout. In that case, inform the user about the timeout
-and tell him to wait since the analysis keeps running in the background and will complete. The most obvious reason is downloading symbols for running into a timeout here.
+If analysis takes too long because symbols are still downloading or the dump is large, explain the timeout clearly and continue with smaller follow-up commands if appropriate.
 
 **Then extract additional metadata with:** `run_windbg_cmd`
 - **Command 1:** `vertarget` (OS version and platform details)
