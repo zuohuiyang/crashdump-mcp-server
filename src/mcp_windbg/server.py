@@ -17,7 +17,6 @@ from .upload_sessions import UploadSessionMetadata, UploadSessionStatus
 
 from mcp.shared.exceptions import McpError
 from mcp.server import Server
-from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import (
     ErrorData,
@@ -492,20 +491,6 @@ async def serve_http(
     config = uvicorn.Config(app, host=host, port=port, log_level="info" if verbose else "warning")
     server_instance = uvicorn.Server(config)
     await server_instance.serve()
-
-
-async def serve(
-    cdb_path: Optional[str] = None,
-    symbols_path: Optional[str] = None,
-    timeout: int = 30,
-    verbose: bool = False,
-) -> None:
-    """Run the crash dump MCP server with stdio transport."""
-    server = _create_server(cdb_path, symbols_path, timeout, verbose)
-
-    options = server.create_initialization_options()
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, options, raise_exceptions=True)
 
 
 def create_http_app(
