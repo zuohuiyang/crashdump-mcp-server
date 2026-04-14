@@ -1,6 +1,6 @@
 [project]
 name = "crashdump-mcp-server"
-version = "0.13.0"
+version = "0.1.0"
 description = "A Model Context Protocol server for remote Windows crash dump analysis using WinDbg/CDB"
 readme = "README.md"
 requires-python = ">=3.10"

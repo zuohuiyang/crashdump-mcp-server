@@ -7,13 +7,13 @@
     "url": "https://github.com/zuohuiyang/crashdump-mcp-server",
     "source": "github"
   },
-  "version": "0.13.0",
+  "version": "0.1.0",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "crashdump-mcp-server",
-      "version": "0.13.0",
+      "version": "0.1.0",
       "transport": {
         "type": "streamable-http",
         "url": "http://localhost:{port}/mcp"

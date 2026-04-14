@@ -246,7 +246,7 @@ wheels = [
 
 [[package]]
 name = "crashdump-mcp-server"
-version = "0.13.0"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },

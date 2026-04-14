@@ -31,21 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 版本一致性脚本改为忽略 `Unreleased` 标题，按首个正式版本校验
 - 修复 CDB 输出处理中 `\r` 进度行不及时透传的问题
 
-## [0.13.0] - 2026-03-18
+## [0.1.0] - 2026-04-15
 
-### Added
-
-- **Live Debugger Break-In**: Added the `send_ctrl_break` tool to interrupt an active CDB/WinDbg session with CTRL+BREAK for dump and remote debugging workflows (#40)
-
-### Changed
-
-- **Dependency Refresh**: Updated runtime dependency floors for `mcp`, `pydantic`, `starlette`, and `uvicorn`, and refreshed test and validation tooling versions in `pyproject.toml`
-- **CI Dependency Maintenance**: Updated GitHub Actions dependencies for Python setup and artifact handling in release workflows (#39, #42)
-
-### Fixed
-
-- **Registry Compatibility**: Restored MCP registry compatibility by reverting `server.json` to the supported `2025-10-17` schema version
-- **Publishing Workflow**: Adjusted MCP publishing workflows to match current registry publisher behavior
+- 今天初始，待发版。
 
 ## [0.12.2] - 2025-12-15
 
@@ -124,6 +112,3 @@ Special thanks to [@sooknarine](https://github.com/sooknarine) for these valuabl
 - [Add support for remote debugging #10](https://github.com/svnscha/crashdump-mcp-server/pull/10) - Connect to live debugging sessions
 
 
-## [0.1.0] - 2025-05-03
-
-- Initial version as blogged about.

@@ -205,7 +205,14 @@ def create_upload_session(file_name: str, file_size: int) -> Dict[str, object]:
             message=str(exc),
             remediation="Use a supported dump filename with .dmp, .mdmp, or .hdmp extension.",
         ) from exc
-    payload["upload_url"] = build_upload_url(payload["file_id"])
+    file_id = payload["file_id"]
+    try:
+        payload["upload_url"] = build_upload_url(file_id)
+    except UploadWorkflowError:
+        metadata = session_registry.upload_sessions.get(file_id)
+        if metadata is not None:
+            upload_sessions.mark_upload_failed(metadata)
+        raise
     return payload
 
 

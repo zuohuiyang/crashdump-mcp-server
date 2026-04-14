@@ -210,10 +210,15 @@ def test_execute_command_heartbeat_callback_invoked():
     class FakeStdin:
         def write(self, payload: bytes) -> None:
             execution = session._active_execution
-            time.sleep(0.05)
-            execution.output_lines.append("line")
-            execution.completed = True
-            execution.done_event.set()
+            def _complete_later():
+                # Sleep longer than execute_command queue poll timeout (0.2s)
+                # to make heartbeat callback deterministic.
+                time.sleep(0.35)
+                execution.output_lines.append("line")
+                execution.completed = True
+                execution.done_event.set()
+
+            threading.Thread(target=_complete_later, daemon=True).start()
 
         def flush(self) -> None:
             return None
