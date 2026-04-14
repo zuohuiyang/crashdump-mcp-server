@@ -76,11 +76,6 @@
           "name": "--max-active-sessions",
           "default": "10",
           "description": "Maximum number of active upload sessions"
-        },
-        {
-          "type": "flag",
-          "name": "--verbose",
-          "description": "Enable verbose server logging"
         }
       ],
       "environmentVariables": []
