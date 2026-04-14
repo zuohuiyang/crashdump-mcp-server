@@ -127,10 +127,10 @@ def test_send_command_serializes_concurrent_calls():
     session.process = SimpleNamespace()
     session.timeout = 1
     session.verbose = False
-    session.output_lines = []
-    session.lock = threading.Lock()
     session.command_lock = threading.Lock()
-    session.ready_event = threading.Event()
+    session._state_lock = threading.Lock()
+    session._active_execution = None
+    session._request_counter = 0
 
     active_writes = 0
     max_active_writes = 0
@@ -140,9 +140,9 @@ def test_send_command_serializes_concurrent_calls():
     commands_seen = []
 
     class FakeStdin:
-        def write(self, payload: str) -> None:
+        def write(self, payload: bytes) -> None:
             nonlocal active_writes, max_active_writes
-            command = payload.splitlines()[0]
+            command = payload.decode("utf-8").splitlines()[0]
             commands_seen.append(command)
             with state_lock:
                 active_writes += 1
@@ -152,8 +152,10 @@ def test_send_command_serializes_concurrent_calls():
                 first_command_entered.set()
                 allow_first_command_to_finish.wait(timeout=1)
 
-            session.output_lines = [f"out:{command}"]
-            session.ready_event.set()
+            execution = session._active_execution
+            execution.output_lines.append(f"out:{command}")
+            execution.completed = True
+            execution.done_event.set()
 
             with state_lock:
                 active_writes -= 1
@@ -193,6 +195,34 @@ def test_find_cdb_executable_prefers_cdb_path_env(monkeypatch):
     session = object.__new__(CDBSession)
 
     assert session._find_cdb_executable() == r"C:\custom\cdb.exe"
+
+
+def test_execute_command_heartbeat_callback_invoked():
+    session = object.__new__(CDBSession)
+    session.process = SimpleNamespace()
+    session.timeout = 1
+    session.verbose = False
+    session.command_lock = threading.Lock()
+    session._state_lock = threading.Lock()
+    session._active_execution = None
+    session._request_counter = 0
+
+    class FakeStdin:
+        def write(self, payload: bytes) -> None:
+            execution = session._active_execution
+            time.sleep(0.05)
+            execution.output_lines.append("line")
+            execution.completed = True
+            execution.done_event.set()
+
+        def flush(self) -> None:
+            return None
+
+    session.process.stdin = FakeStdin()
+    heartbeats = []
+    result = session.execute_command("kb", timeout=1, on_heartbeat=lambda: heartbeats.append("hb"), heartbeat_interval=0.01)
+    assert result["output_lines"] == ["line"]
+    assert len(heartbeats) >= 1
 
 if __name__ == "__main__":
     pytest.main(["-v", __file__])

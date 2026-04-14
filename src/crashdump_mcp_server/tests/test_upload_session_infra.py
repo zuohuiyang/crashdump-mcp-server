@@ -16,18 +16,22 @@ def _get_tool_map():
     return {tool.name: tool for tool in result.root.tools}
 
 
-def test_crashdump_server_exposes_only_dump_analysis_tools():
+def test_crashdump_server_exposes_only_new_design_tools():
     tool_map = _get_tool_map()
     tool_names = set(tool_map)
+    assert tool_names == {
+        "prepare_dump_upload",
+        "start_analysis_session",
+        "execute_windbg_command",
+        "close_analysis_session",
+    }
 
-    assert "create_upload_session" in tool_names
-    assert "session_id" in tool_map["open_windbg_dump"].inputSchema["properties"]
-    assert "session_id" in tool_map["run_windbg_cmd"].inputSchema["properties"]
-    assert "session_id" in tool_map["close_windbg_dump"].inputSchema["properties"]
-    assert "dump_path" not in tool_map["open_windbg_dump"].inputSchema["properties"]
-    assert "dump_path" not in tool_map["run_windbg_cmd"].inputSchema["properties"]
-    assert "dump_path" not in tool_map["close_windbg_dump"].inputSchema["properties"]
-    assert "connection_string" not in tool_map["run_windbg_cmd"].inputSchema["properties"]
-    assert "open_windbg_remote" not in tool_names
-    assert "close_windbg_remote" not in tool_names
-    assert "send_ctrl_break" not in tool_names
+
+def test_new_tool_schemas_match_expected_params():
+    tool_map = _get_tool_map()
+    assert "file_size" in tool_map["prepare_dump_upload"].inputSchema["properties"]
+    assert "file_name" in tool_map["prepare_dump_upload"].inputSchema["properties"]
+    assert "file_id" in tool_map["start_analysis_session"].inputSchema["properties"]
+    assert "session_id" in tool_map["execute_windbg_command"].inputSchema["properties"]
+    assert "command" in tool_map["execute_windbg_command"].inputSchema["properties"]
+    assert "timeout" in tool_map["execute_windbg_command"].inputSchema["properties"]

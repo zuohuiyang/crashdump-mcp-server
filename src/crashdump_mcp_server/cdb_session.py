@@ -1,17 +1,14 @@
+import os
+import queue
+import signal
 import subprocess
 import threading
-import re
-import os
-import platform
-import signal
-from typing import List, Optional
+import time
+from dataclasses import dataclass, field
+from typing import Callable, List, Optional
 
-# Regular expression to detect CDB prompts
-PROMPT_REGEX = re.compile(r"^\d+:\d+>\s*$")
-
-# Command marker to reliably detect command completion
-COMMAND_MARKER = ".echo COMMAND_COMPLETED_MARKER"
-COMMAND_MARKER_PATTERN = re.compile(r"COMMAND_COMPLETED_MARKER")
+COMMAND_MARKER_TEXT = "COMMAND_COMPLETED_MARKER"
+COMMAND_MARKER = f".echo {COMMAND_MARKER_TEXT}"
 
 # Default paths where cdb.exe might be located
 DEFAULT_CDB_PATHS = [
@@ -30,6 +27,21 @@ DEFAULT_CDB_PATHS = [
 class CDBError(Exception):
     """Custom exception for CDB-related errors"""
     pass
+
+
+@dataclass
+class CommandExecution:
+    request_id: str
+    command: str
+    started_at: float
+    first_output_at: Optional[float] = None
+    last_output_at: Optional[float] = None
+    completed: bool = False
+    cancelled: bool = False
+    output_lines: list[str] = field(default_factory=list)
+    done_event: threading.Event = field(default_factory=threading.Event, repr=False)
+    line_queue: queue.Queue[str] = field(default_factory=queue.Queue, repr=False)
+
 
 class CDBSession:
     def __init__(
@@ -98,9 +110,9 @@ class CDBSession:
             cmd_args.extend(additional_args)
 
         try:
-            # Only create a new process group for remote sessions where CTRL+BREAK is needed
+            # Create a process group so CTRL+BREAK can be delivered for cancellation.
             creationflags = 0
-            if os.name == 'nt' and self.remote_connection:
+            if os.name == 'nt':
                 creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
 
             self.process = subprocess.Popen(
@@ -108,24 +120,23 @@ class CDBSession:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
+                text=False,
+                bufsize=0,
                 creationflags=creationflags,
             )
         except Exception as e:
             raise CDBError(f"Failed to start CDB process: {str(e)}")
 
-        self.output_lines = []
-        self.lock = threading.Lock()
         self.command_lock = threading.Lock()
-        self.ready_event = threading.Event()
-        self.reader_thread = threading.Thread(target=self._read_output)
-        self.reader_thread.daemon = True
-        self.reader_thread.start()
+        self._state_lock = threading.Lock()
+        self._active_execution: Optional[CommandExecution] = None
+        self._request_counter = 0
+        self._reader_thread = threading.Thread(target=self._read_output_bytes, daemon=True)
+        self._reader_thread.start()
 
-        # Wait for CDB to initialize by sending an echo marker
+        # Wait for CDB to initialize by probing with marker command
         try:
-            self._wait_for_prompt(timeout=self.timeout)
+            self.send_command("version", timeout=max(self.timeout, 20))
         except CDBError:
             self.shutdown()
             raise CDBError("CDB initialization timed out")
@@ -150,44 +161,67 @@ class CDBSession:
 
         return None
 
-    def _read_output(self):
-        """Thread function to continuously read CDB output"""
+    def _next_request_id(self) -> str:
+        with self._state_lock:
+            self._request_counter += 1
+            return str(self._request_counter)
+
+    def _emit_line(self, text: str) -> None:
+        with self._state_lock:
+            execution = self._active_execution
+            if execution is None:
+                return
+
+            if COMMAND_MARKER_TEXT in text:
+                execution.completed = True
+                execution.done_event.set()
+                return
+
+            now = time.time()
+            if execution.first_output_at is None:
+                execution.first_output_at = now
+            execution.last_output_at = now
+            execution.output_lines.append(text)
+            execution.line_queue.put(text)
+
+    def _read_output_bytes(self) -> None:
+        """Thread function to continuously read raw CDB output bytes."""
         if not self.process or not self.process.stdout:
             return
 
-        buffer = []
+        buffer = bytearray()
+        skip_next_lf = False
         try:
-            for line in self.process.stdout:
-                line = line.rstrip()
-                if self.verbose:
-                    print(f"CDB > {line}")
+            while True:
+                chunk = self.process.stdout.read(1)
+                if not chunk:
+                    break
 
-                with self.lock:
-                    buffer.append(line)
-                    # Check if the marker is in this line
-                    if COMMAND_MARKER_PATTERN.search(line):
-                        # Remove the marker line itself
-                        if buffer and COMMAND_MARKER_PATTERN.search(buffer[-1]):
-                            buffer.pop()
-                        self.output_lines = buffer
-                        buffer = []
-                        self.ready_event.set()
+                if skip_next_lf and chunk == b"\n":
+                    skip_next_lf = False
+                    continue
+                skip_next_lf = False
+
+                if chunk in (b"\r", b"\n"):
+                    if chunk == b"\r":
+                        skip_next_lf = True
+                    line = buffer.decode("utf-8", errors="replace")
+                    buffer.clear()
+                    if self.verbose:
+                        print(f"CDB > {line}")
+                    self._emit_line(line)
+                    continue
+
+                buffer.extend(chunk)
         except (IOError, ValueError) as e:
             if self.verbose:
                 print(f"CDB output reader error: {e}")
-
-    def _wait_for_prompt(self, timeout=None):
-        """Wait for CDB to be ready for commands by sending a marker"""
-        with self.command_lock:
-            try:
-                self.ready_event.clear()
-                self.process.stdin.write(f"{COMMAND_MARKER}\n")
-                self.process.stdin.flush()
-
-                if not self.ready_event.wait(timeout=timeout or self.timeout):
-                    raise CDBError(f"Timed out waiting for CDB prompt")
-            except IOError as e:
-                raise CDBError(f"Failed to communicate with CDB: {str(e)}")
+        finally:
+            if buffer:
+                line = buffer.decode("utf-8", errors="replace")
+                if self.verbose:
+                    print(f"CDB > {line}")
+                self._emit_line(line)
 
     def send_command(self, command: str, timeout: Optional[int] = None) -> List[str]:
         """
@@ -205,29 +239,93 @@ class CDBSession:
         """
         if not self.process:
             raise CDBError("CDB process is not running")
+        result = self.execute_command(command, timeout=timeout)
+        return result["output_lines"]
 
-        # A single CDB process cannot safely handle interleaved commands from
-        # multiple threads because stdout/marker state is shared.
+    def execute_command(
+        self,
+        command: str,
+        timeout: Optional[int] = None,
+        on_output: Optional[Callable[[str], None]] = None,
+        on_heartbeat: Optional[Callable[[], None]] = None,
+        heartbeat_interval: float = 5.0,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> dict:
+        if not self.process or not self.process.stdin:
+            raise CDBError("CDB process is not running")
+
+        cmd_timeout = timeout or self.timeout
+        request_id = self._next_request_id()
+        execution = CommandExecution(
+            request_id=request_id,
+            command=command,
+            started_at=time.time(),
+        )
+        last_activity_at = execution.started_at
+        interrupt_deadline: Optional[float] = None
+
         with self.command_lock:
-            self.ready_event.clear()
-            with self.lock:
-                self.output_lines = []
-
             try:
-                # Send the command followed by our marker to detect completion
-                self.process.stdin.write(f"{command}\n{COMMAND_MARKER}\n")
+                with self._state_lock:
+                    self._active_execution = execution
+
+                self.process.stdin.write(f"{command}\n{COMMAND_MARKER}\n".encode("utf-8"))
                 self.process.stdin.flush()
             except IOError as e:
                 raise CDBError(f"Failed to send command: {str(e)}")
 
-            cmd_timeout = timeout or self.timeout
-            if not self.ready_event.wait(timeout=cmd_timeout):
-                raise CDBError(f"Command timed out after {cmd_timeout} seconds: {command}")
+            try:
+                while True:
+                    now = time.time()
+                    if now - execution.started_at > cmd_timeout:
+                        raise CDBError(f"Command timed out after {cmd_timeout} seconds: {command}")
 
-            with self.lock:
-                result = self.output_lines.copy()
-                self.output_lines = []
-            return result
+                    if cancel_event and cancel_event.is_set() and not execution.cancelled:
+                        execution.cancelled = True
+                        try:
+                            self.send_ctrl_break()
+                        except CDBError:
+                            # Preserve cancellation state even if signal delivery fails.
+                            pass
+                        interrupt_deadline = time.time() + 5.0
+
+                    if (
+                        execution.cancelled
+                        and interrupt_deadline is not None
+                        and time.time() > interrupt_deadline
+                        and not execution.completed
+                    ):
+                        execution.completed = True
+                        execution.done_event.set()
+
+                    try:
+                        line = execution.line_queue.get(timeout=0.2)
+                        last_activity_at = time.time()
+                        if on_output:
+                            on_output(line)
+                    except queue.Empty:
+                        if (
+                            on_heartbeat
+                            and heartbeat_interval > 0
+                            and not execution.completed
+                            and (time.time() - last_activity_at) >= heartbeat_interval
+                        ):
+                            on_heartbeat()
+                            last_activity_at = time.time()
+
+                    if execution.completed and execution.line_queue.empty():
+                        break
+            finally:
+                with self._state_lock:
+                    self._active_execution = None
+
+        return {
+            "request_id": execution.request_id,
+            "command": execution.command,
+            "output_lines": execution.output_lines.copy(),
+            "cancelled": execution.cancelled,
+            "execution_time_ms": int((time.time() - execution.started_at) * 1000),
+        }
 
     def shutdown(self):
         """Clean up and terminate the CDB process"""
@@ -265,7 +363,6 @@ class CDBSession:
             raise CDBError("CDB process is not running")
 
         try:
-            # On Windows, deliver CTRL+BREAK to the new process group we created
             self.process.send_signal(signal.CTRL_BREAK_EVENT)
         except Exception as e:
             raise CDBError(f"Failed to send CTRL+BREAK: {str(e)}")

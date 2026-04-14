@@ -37,9 +37,6 @@ crashdump-mcp-server = "crashdump_mcp_server:main"
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.package-data]
-crashdump_mcp_server = ["prompts/*.prompt.md"]
-
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",

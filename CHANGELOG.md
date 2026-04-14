@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `NOTICE.md`：补充 fork 来源、上游仓库与 MIT 归因说明
+- 新增工具面重构：`prepare_dump_upload`、`start_analysis_session`、`execute_windbg_command`、`close_analysis_session`
+- 新增命令阶段状态：`queued/running/completed`
+- 新增危险命令拦截策略，默认严格拒绝执行
 
 ### Changed
 
@@ -17,11 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 上传会话结果重新返回完整 `upload_url`，降低客户端集成门槛
 - MCP 工具面移除远程调试相关工具，仅保留 dump 分析链路
 - `server.json`、README、CLI 与发布说明统一改名为 `crashdump-mcp-server`
+- 命令执行模型改为 marker 驱动完成判定（`COMMAND_COMPLETED_MARKER`），不再依赖提示符正则
+- `pending` 阶段命名替换为 `queued`
+- 调用方不再可配置符号路径，仅允许服务端管理员通过 CLI/环境变量配置
+- 移除不再使用的 prompt 子系统代码与文件
 
 ### Fixed
 
 - **Upload Session Cleanup**: Clean up failed upload sessions immediately, reject expired uploaded sessions on access, and allow expired stale uploading sessions to be reclaimed safely
 - 版本一致性脚本改为忽略 `Unreleased` 标题，按首个正式版本校验
+- 修复 CDB 输出处理中 `\r` 进度行不及时透传的问题
 
 ## [0.13.0] - 2026-03-18
 

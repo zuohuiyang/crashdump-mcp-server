@@ -9,7 +9,12 @@ def main():
         description="Run the crashdump-mcp-server for remote Windows crash dump analysis."
     )
     parser.add_argument("--cdb-path", type=str, help="Custom path to cdb.exe")
-    parser.add_argument("--symbols-path", type=str, help="Custom symbols path")
+    parser.add_argument(
+        "--symbols-path",
+        type=str,
+        default=None,
+        help="服务端符号路径（调用方不可覆盖）；默认 srv*c:\\symbols*https://msdl.microsoft.com/download/symbols",
+    )
     parser.add_argument("--timeout", type=int, default=30, help="Command timeout in seconds")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host to bind HTTP server to (default: 127.0.0.1)")

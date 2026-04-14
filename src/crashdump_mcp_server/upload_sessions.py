@@ -15,13 +15,9 @@ DEFAULT_MAX_UPLOAD_MB = 100
 DEFAULT_SESSION_TTL_SECONDS = 1800
 DEFAULT_MAX_ACTIVE_SESSIONS = 10
 UPLOAD_DIR_ENV = "CRASHDUMP_MCP_UPLOAD_DIR"
-LEGACY_UPLOAD_DIR_ENV = "WINDBG_UPLOAD_DIR"
 MAX_UPLOAD_MB_ENV = "CRASHDUMP_MCP_MAX_UPLOAD_MB"
-LEGACY_MAX_UPLOAD_MB_ENV = "WINDBG_MAX_UPLOAD_MB"
 SESSION_TTL_ENV = "CRASHDUMP_MCP_SESSION_TTL_SECONDS"
-LEGACY_SESSION_TTL_ENV = "WINDBG_SESSION_TTL_SECONDS"
 MAX_ACTIVE_SESSIONS_ENV = "CRASHDUMP_MCP_MAX_ACTIVE_SESSIONS"
-LEGACY_MAX_ACTIVE_SESSIONS_ENV = "WINDBG_MAX_ACTIVE_SESSIONS"
 MINIDUMP_SIGNATURE = b"MDMP"
 PAGE_DUMP_SIGNATURE = b"PAGE"
 SUPPORTED_DUMP_SIGNATURES = {
@@ -39,24 +35,43 @@ class UploadSessionStatus(str, Enum):
     PENDING = "pending"
     UPLOADING = "uploading"
     UPLOADED = "uploaded"
+    FAILED = "failed"
+
+
+class AnalysisSessionStatus(str, Enum):
+    CREATED = "created"
+    RUNNING = "running"
+    CLOSED = "closed"
 
 
 @dataclass
 class UploadSessionMetadata:
-    """Metadata for uploaded DMP sessions."""
-
-    session_id: str
+    file_id: str
     original_file_name: str
+    expected_file_size: int
     temp_file_path: str
     status: UploadSessionStatus = UploadSessionStatus.PENDING
+    analysis_session_id: Optional[str] = None
     created_at: datetime = field(default_factory=_utc_now)
     last_access_at: datetime = field(default_factory=_utc_now)
     expires_at: Optional[datetime] = None
     upload_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     is_analyzing: bool = False
 
-    def mark_status(self, status: UploadSessionStatus) -> None:
-        self.status = status
+    def touch(self, ttl_seconds: int) -> None:
+        now = _utc_now()
+        self.last_access_at = now
+        self.expires_at = now + timedelta(seconds=ttl_seconds)
+
+
+@dataclass
+class AnalysisSessionMetadata:
+    session_id: str
+    file_id: str
+    status: AnalysisSessionStatus = AnalysisSessionStatus.CREATED
+    created_at: datetime = field(default_factory=_utc_now)
+    last_access_at: datetime = field(default_factory=_utc_now)
+    expires_at: Optional[datetime] = None
 
     def touch(self, ttl_seconds: int) -> None:
         now = _utc_now()
@@ -74,65 +89,47 @@ class UploadRuntimeConfig:
 
 @dataclass
 class SessionRegistry:
-    """Unified registry for all session types."""
-
     cdb_sessions: Dict[str, object] = field(default_factory=dict)
     upload_sessions: Dict[str, UploadSessionMetadata] = field(default_factory=dict)
-    lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
+    analysis_sessions: Dict[str, AnalysisSessionMetadata] = field(default_factory=dict)
     cdb_creation_locks: Dict[str, threading.Lock] = field(default_factory=dict, repr=False)
+    lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
 
 class UploadSessionLimitError(RuntimeError):
-    """Raised when the active upload session limit is exceeded."""
+    pass
 
 
 _upload_storage_lock = threading.Lock()
 _initialized_upload_dir: Optional[str] = None
 
 
-def _get_env_value(primary_name: str, legacy_name: Optional[str] = None) -> Optional[str]:
-    for name in (primary_name, legacy_name):
-        if not name:
-            continue
-        raw = os.getenv(name)
-        if raw is not None and raw.strip() != "":
-            return raw
-    return None
-
-
-def _load_positive_int_env(primary_name: str, default: int, legacy_name: Optional[str] = None) -> int:
-    raw = _get_env_value(primary_name, legacy_name)
-    if raw is None or raw.strip() == "":
+def _load_positive_int_env(name: str, default: int) -> int:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
         return default
-
     try:
         value = int(raw)
+        return value if value > 0 else default
     except ValueError:
-        logger.warning("Invalid integer in %s=%r, using default=%d", primary_name, raw, default)
+        logger.warning("Invalid integer in %s=%r, using default=%d", name, raw, default)
         return default
-
-    if value <= 0:
-        logger.warning("Non-positive value in %s=%r, using default=%d", primary_name, raw, default)
-        return default
-
-    return value
 
 
 def _default_upload_dir() -> str:
     program_data = os.getenv("PROGRAMDATA")
     if program_data:
         return str(Path(program_data) / "crashdump-mcp-server" / "uploads")
-
     return str(Path(tempfile.gettempdir()) / "crashdump-mcp-server" / "uploads")
 
 
 def load_upload_runtime_config() -> UploadRuntimeConfig:
-    upload_dir = (_get_env_value(UPLOAD_DIR_ENV, LEGACY_UPLOAD_DIR_ENV) or "").strip() or _default_upload_dir()
+    upload_dir = (os.getenv(UPLOAD_DIR_ENV) or "").strip() or _default_upload_dir()
     return UploadRuntimeConfig(
         upload_dir=os.path.abspath(upload_dir),
-        max_upload_mb=_load_positive_int_env(MAX_UPLOAD_MB_ENV, DEFAULT_MAX_UPLOAD_MB, LEGACY_MAX_UPLOAD_MB_ENV),
-        session_ttl_seconds=_load_positive_int_env(SESSION_TTL_ENV, DEFAULT_SESSION_TTL_SECONDS, LEGACY_SESSION_TTL_ENV),
-        max_active_sessions=_load_positive_int_env(MAX_ACTIVE_SESSIONS_ENV, DEFAULT_MAX_ACTIVE_SESSIONS, LEGACY_MAX_ACTIVE_SESSIONS_ENV),
+        max_upload_mb=_load_positive_int_env(MAX_UPLOAD_MB_ENV, DEFAULT_MAX_UPLOAD_MB),
+        session_ttl_seconds=_load_positive_int_env(SESSION_TTL_ENV, DEFAULT_SESSION_TTL_SECONDS),
+        max_active_sessions=_load_positive_int_env(MAX_ACTIVE_SESSIONS_ENV, DEFAULT_MAX_ACTIVE_SESSIONS),
     )
 
 
@@ -141,41 +138,19 @@ def ensure_controlled_upload_dir(upload_dir: str) -> str:
     path.mkdir(parents=True, exist_ok=True)
     if not path.is_dir():
         raise RuntimeError(f"Upload path is not a directory: {path}")
-
-    probe_file = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            dir=path,
-            prefix=".crashdump_mcp_server_write_probe_",
-            delete=False,
-        ) as probe:
-            probe_file = Path(probe.name)
-            probe.write(b"ok")
-    except OSError as exc:
-        raise RuntimeError(f"Upload directory is not writable: {path}") from exc
-    finally:
-        if probe_file is not None:
-            try:
-                probe_file.unlink(missing_ok=True)
-            except OSError:
-                pass
-
     return str(path)
 
 
 def initialize_upload_storage(config: Optional[UploadRuntimeConfig] = None) -> UploadRuntimeConfig:
     global _initialized_upload_dir
-
     runtime_config = config or upload_runtime_config
     configured_dir = os.path.abspath(runtime_config.upload_dir)
     with _upload_storage_lock:
         if _initialized_upload_dir == configured_dir and os.path.isdir(configured_dir):
             runtime_config.upload_dir = configured_dir
             return runtime_config
-
         runtime_config.upload_dir = ensure_controlled_upload_dir(configured_dir)
         _initialized_upload_dir = runtime_config.upload_dir
-
     return runtime_config
 
 
@@ -183,7 +158,8 @@ def get_supported_dump_extension(file_name: str) -> Optional[str]:
     normalized = os.path.basename(file_name.strip()).lower()
     if not normalized:
         return None
-    return Path(normalized).suffix if Path(normalized).suffix in SUPPORTED_DUMP_SIGNATURES else None
+    suffix = Path(normalized).suffix
+    return suffix if suffix in SUPPORTED_DUMP_SIGNATURES else None
 
 
 def is_supported_dump_filename(file_name: str) -> bool:
@@ -191,67 +167,28 @@ def is_supported_dump_filename(file_name: str) -> bool:
 
 
 def get_expected_dump_signatures(file_name: str) -> Tuple[bytes, ...]:
-    extension = get_supported_dump_extension(file_name)
-    if extension is None:
+    ext = get_supported_dump_extension(file_name)
+    if ext is None:
         raise ValueError("Only .dmp, .mdmp, and .hdmp files are supported")
-    return SUPPORTED_DUMP_SIGNATURES[extension]
+    return SUPPORTED_DUMP_SIGNATURES[ext]
 
 
 def sanitize_upload_file_name(file_name: str) -> str:
     base_name = os.path.basename(file_name.strip())
     if not base_name:
         return "upload.dmp"
-
-    extension = get_supported_dump_extension(base_name)
-    stem = base_name[: -len(extension)] if extension else base_name
-    sanitized_stem = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in stem)
-    sanitized_stem = sanitized_stem.strip("._-") or "upload"
-    return f"{sanitized_stem}{extension or '.dmp'}"
+    ext = get_supported_dump_extension(base_name)
+    stem = base_name[: -len(ext)] if ext else base_name
+    safe_stem = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in stem).strip("._-") or "upload"
+    return f"{safe_stem}{ext or '.dmp'}"
 
 
-def _build_upload_temp_file_path(session_id: str, file_name: str) -> str:
-    safe_name = sanitize_upload_file_name(file_name)
-    return os.path.join(upload_runtime_config.upload_dir, f"{session_id}-{safe_name}")
+def _build_upload_temp_file_path(file_id: str, file_name: str) -> str:
+    return os.path.join(upload_runtime_config.upload_dir, f"{file_id}-{sanitize_upload_file_name(file_name)}")
 
 
 def build_upload_cdb_session_key(session_id: str) -> str:
-    return f"upload:{session_id}"
-
-
-def discard_cdb_creation_lock(session_key: str) -> None:
-    with session_registry.lock:
-        session_registry.cdb_creation_locks.pop(session_key, None)
-
-
-def _active_upload_session_count_unlocked() -> int:
-    return len(session_registry.upload_sessions)
-
-
-def _is_upload_session_expired_unlocked(
-    metadata: UploadSessionMetadata, now: Optional[datetime] = None
-) -> bool:
-    expires_at = metadata.expires_at
-    if expires_at is None:
-        return False
-
-    return expires_at <= (now or _utc_now())
-
-
-def _has_active_analysis_unlocked(metadata: UploadSessionMetadata) -> bool:
-    return metadata.is_analyzing
-
-
-def _create_upload_metadata(
-    session_id: str,
-    original_file_name: str,
-    temp_file_path: str,
-) -> UploadSessionMetadata:
-    return UploadSessionMetadata(
-        session_id=session_id,
-        original_file_name=original_file_name,
-        temp_file_path=temp_file_path,
-        status=UploadSessionStatus.PENDING,
-    )
+    return f"analysis:{session_id}"
 
 
 def cleanup_temp_upload_file(path: str) -> None:
@@ -261,279 +198,192 @@ def cleanup_temp_upload_file(path: str) -> None:
         pass
 
 
-def _cleanup_upload_session_resources(
-    metadata: UploadSessionMetadata,
-    cdb_session: object,
-    *,
-    swallow_shutdown_errors: bool = False,
-) -> None:
-    if cdb_session is not None:
-        shutdown = getattr(cdb_session, "shutdown", None)
-        if callable(shutdown):
-            if swallow_shutdown_errors:
-                try:
-                    shutdown()
-                except Exception:
-                    logger.exception(
-                        "Failed to shut down CDB session while cleaning upload session %s",
-                        metadata.session_id,
-                    )
-            else:
-                shutdown()
-
-    cleanup_temp_upload_file(metadata.temp_file_path)
-
-
-def _get_cdb_creation_lock(session_key: str) -> threading.Lock:
-    with session_registry.lock:
-        creation_lock = session_registry.cdb_creation_locks.get(session_key)
-        if creation_lock is None:
-            creation_lock = threading.Lock()
-            session_registry.cdb_creation_locks[session_key] = creation_lock
-        return creation_lock
-
-
-def _pop_upload_session_unlocked(session_id: str) -> Tuple[Optional[UploadSessionMetadata], object]:
-    metadata = session_registry.upload_sessions.pop(session_id, None)
-    session_key = build_upload_cdb_session_key(session_id)
-    cdb_session = session_registry.cdb_sessions.pop(session_key, None)
-    session_registry.cdb_creation_locks.pop(session_key, None)
-    return metadata, cdb_session
-
-
-def create_upload_session(file_name: str) -> Dict[str, object]:
+def create_upload_session(file_name: str, file_size: int) -> Dict[str, object]:
     initialize_upload_storage()
     original_file_name = os.path.basename(file_name.strip())
     if not is_supported_dump_filename(original_file_name):
         raise ValueError("Only .dmp, .mdmp, and .hdmp files are supported")
+    if file_size <= 0:
+        raise ValueError("file_size must be greater than 0")
+    max_bytes = upload_runtime_config.max_upload_mb * 1024 * 1024
+    if file_size > max_bytes:
+        raise UploadSessionLimitError(f"file_size exceeds limit: {upload_runtime_config.max_upload_mb}MB")
 
     cleanup_expired_upload_sessions()
 
     with session_registry.lock:
-        if _active_upload_session_count_unlocked() >= upload_runtime_config.max_active_sessions:
+        if len(session_registry.upload_sessions) >= upload_runtime_config.max_active_sessions:
             raise UploadSessionLimitError(
                 f"maximum active upload sessions reached ({upload_runtime_config.max_active_sessions})"
             )
-
-        session_id = uuid.uuid4().hex
-        temp_file_path = _build_upload_temp_file_path(session_id, original_file_name)
-        metadata = _create_upload_metadata(session_id, original_file_name, temp_file_path)
+        file_id = uuid.uuid4().hex
+        metadata = UploadSessionMetadata(
+            file_id=file_id,
+            original_file_name=original_file_name,
+            expected_file_size=file_size,
+            temp_file_path=_build_upload_temp_file_path(file_id, original_file_name),
+        )
         metadata.touch(upload_runtime_config.session_ttl_seconds)
-        session_registry.upload_sessions[session_id] = metadata
-
+        session_registry.upload_sessions[file_id] = metadata
         return {
-            "session_id": session_id,
+            "file_id": file_id,
             "expires_at": metadata.expires_at.isoformat() if metadata.expires_at else "",
             "max_upload_mb": upload_runtime_config.max_upload_mb,
         }
 
 
 def cleanup_expired_upload_sessions(now: Optional[datetime] = None) -> int:
-    """Remove expired upload sessions and associated temporary files."""
     current = now or _utc_now()
-    expired: list[tuple[str, UploadSessionMetadata, object]] = []
-
-    with session_registry.lock:
-        for session_id, metadata in list(session_registry.upload_sessions.items()):
-            if not _is_upload_session_expired_unlocked(metadata, current):
-                continue
-            if not metadata.upload_lock.acquire(blocking=False):
-                continue
-            latest_metadata = session_registry.upload_sessions.get(session_id)
-            if latest_metadata is None:
-                release_upload_lock(metadata)
-                continue
-            metadata = latest_metadata
-            if (
-                not _is_upload_session_expired_unlocked(metadata, current)
-                or _has_active_analysis_unlocked(metadata)
-            ):
-                release_upload_lock(metadata)
-                continue
-            popped_metadata, cdb_session = _pop_upload_session_unlocked(session_id)
-            if popped_metadata is not None:
-                expired.append((session_id, popped_metadata, cdb_session))
-            else:
-                release_upload_lock(metadata)
-
     removed = 0
-    for session_id, metadata, cdb_session in expired:
-        try:
-            _cleanup_upload_session_resources(metadata, cdb_session, swallow_shutdown_errors=True)
-        except Exception:
-            with session_registry.lock:
-                session_registry.upload_sessions.setdefault(session_id, metadata)
-                if cdb_session is not None:
-                    session_registry.cdb_sessions.setdefault(
-                        build_upload_cdb_session_key(session_id), cdb_session
-                    )
-            logger.exception("Failed to clean up expired upload session: %s", session_id)
-            continue
-        finally:
-            release_upload_lock(metadata)
-        removed += 1
-
+    to_cleanup: list[tuple[UploadSessionMetadata, object]] = []
+    with session_registry.lock:
+        for file_id, metadata in list(session_registry.upload_sessions.items()):
+            if metadata.expires_at and metadata.expires_at <= current and not metadata.is_analyzing:
+                session_registry.upload_sessions.pop(file_id, None)
+                if metadata.analysis_session_id:
+                    session_registry.analysis_sessions.pop(metadata.analysis_session_id, None)
+                    cdb = session_registry.cdb_sessions.pop(build_upload_cdb_session_key(metadata.analysis_session_id), None)
+                    to_cleanup.append((metadata, cdb))
+                else:
+                    to_cleanup.append((metadata, None))
+                removed += 1
+    for metadata, cdb in to_cleanup:
+        if cdb and callable(getattr(cdb, "shutdown", None)):
+            try:
+                cdb.shutdown()
+            except Exception:
+                logger.exception("Failed to shutdown CDB session for expired file_id=%s", metadata.file_id)
+        cleanup_temp_upload_file(metadata.temp_file_path)
     return removed
 
 
-def prepare_upload_session_for_upload(
-    session_id: str, ttl_seconds: int
-) -> Tuple[Optional[UploadSessionMetadata], str, str]:
+def prepare_upload_session_for_upload(file_id: str, ttl_seconds: int) -> Tuple[Optional[UploadSessionMetadata], str, str]:
     with session_registry.lock:
-        metadata = session_registry.upload_sessions.get(session_id)
-
+        metadata = session_registry.upload_sessions.get(file_id)
     if metadata is None:
         return None, "not_found", "Upload session not found"
-
     if not metadata.upload_lock.acquire(blocking=False):
         return None, "busy", "Upload session is already processing an upload"
 
-    expired_metadata = None
-    expired_cdb_session = None
-    error_kind = "not_found"
-    error_message = "Upload session not found"
     with session_registry.lock:
-        latest_metadata = session_registry.upload_sessions.get(session_id)
-        if latest_metadata is None:
-            pass
-        else:
-            metadata = latest_metadata
-            if _is_upload_session_expired_unlocked(metadata):
-                expired_metadata, expired_cdb_session = _pop_upload_session_unlocked(session_id)
-                error_kind = "expired"
-                error_message = "Upload session has expired"
-            elif metadata.status != UploadSessionStatus.PENDING:
-                error_kind = "invalid_state"
-                error_message = f"Upload session state is {metadata.status.value}, expected pending"
-            else:
-                metadata.mark_status(UploadSessionStatus.UPLOADING)
-                metadata.touch(ttl_seconds)
-                return metadata, "", ""
-
-    try:
-        if expired_metadata is not None:
-            _cleanup_upload_session_resources(expired_metadata, expired_cdb_session, swallow_shutdown_errors=True)
-    finally:
-        metadata.upload_lock.release()
-
-    return None, error_kind, error_message
+        latest = session_registry.upload_sessions.get(file_id)
+        if latest is None:
+            metadata.upload_lock.release()
+            return None, "not_found", "Upload session not found"
+        metadata = latest
+        if metadata.status != UploadSessionStatus.PENDING:
+            metadata.upload_lock.release()
+            return None, "invalid_state", f"Upload session state is {metadata.status.value}, expected pending"
+        metadata.status = UploadSessionStatus.UPLOADING
+        metadata.touch(ttl_seconds)
+        return metadata, "", ""
 
 
 def mark_upload_failed(metadata: UploadSessionMetadata) -> None:
-    popped_metadata = None
-    cdb_session = None
     with session_registry.lock:
-        current = session_registry.upload_sessions.get(metadata.session_id)
-        if current is metadata:
-            popped_metadata, cdb_session = _pop_upload_session_unlocked(metadata.session_id)
-
-    try:
-        _cleanup_upload_session_resources(
-            popped_metadata or metadata,
-            cdb_session,
-            swallow_shutdown_errors=True,
-        )
-    except Exception:
-        logger.exception("Failed to clean up failed upload session: %s", metadata.session_id)
+        session_registry.upload_sessions.pop(metadata.file_id, None)
+    cleanup_temp_upload_file(metadata.temp_file_path)
 
 
-def mark_upload_completed(metadata: UploadSessionMetadata, ttl_seconds: int) -> None:
+def mark_upload_completed(metadata: UploadSessionMetadata, ttl_seconds: int, uploaded_size: int) -> Optional[str]:
     with session_registry.lock:
-        current = session_registry.upload_sessions.get(metadata.session_id)
-        if current is metadata:
-            metadata.mark_status(UploadSessionStatus.UPLOADED)
-            metadata.touch(ttl_seconds)
+        current = session_registry.upload_sessions.get(metadata.file_id)
+        if current is not metadata:
+            return "Upload session not found"
+        if uploaded_size != metadata.expected_file_size:
+            session_registry.upload_sessions.pop(metadata.file_id, None)
+            cleanup_temp_upload_file(metadata.temp_file_path)
+            return f"Uploaded file size mismatch: expected {metadata.expected_file_size}, got {uploaded_size}"
+        metadata.status = UploadSessionStatus.UPLOADED
+        metadata.touch(ttl_seconds)
+    return None
 
 
 def release_upload_lock(metadata: Optional[UploadSessionMetadata]) -> None:
     if metadata is None:
         return
-
     try:
         metadata.upload_lock.release()
     except RuntimeError:
         pass
 
 
-def acquire_uploaded_session(
-    session_id: str, ttl_seconds: int, *, for_analysis: bool = False
-) -> Tuple[Optional[UploadSessionMetadata], Optional[str]]:
-    expired_metadata = None
-    expired_cdb_session = None
-
+def acquire_uploaded_file_for_analysis(file_id: str, ttl_seconds: int) -> Tuple[Optional[UploadSessionMetadata], Optional[str]]:
     with session_registry.lock:
-        metadata = session_registry.upload_sessions.get(session_id)
+        metadata = session_registry.upload_sessions.get(file_id)
         if metadata is None:
             return None, "Upload session not found"
-        if _is_upload_session_expired_unlocked(metadata):
-            if not _has_active_analysis_unlocked(metadata):
-                expired_metadata, expired_cdb_session = _pop_upload_session_unlocked(session_id)
-        elif metadata.status != UploadSessionStatus.UPLOADED:
+        if metadata.status != UploadSessionStatus.UPLOADED:
             return None, f"Upload session state is {metadata.status.value}, expected uploaded"
-        else:
-            if for_analysis:
-                if _has_active_analysis_unlocked(metadata):
-                    return None, "Upload session is currently being analyzed"
-                metadata.is_analyzing = True
-            metadata.touch(ttl_seconds)
-            return metadata, None
-
-    if expired_metadata is not None:
-        try:
-            _cleanup_upload_session_resources(
-                expired_metadata,
-                expired_cdb_session,
-                swallow_shutdown_errors=True,
-            )
-        except Exception:
-            logger.exception("Failed to clean up expired upload session after access: %s", session_id)
-
-    return None, "Upload session has expired"
+        metadata.touch(ttl_seconds)
+        return metadata, None
 
 
-def release_uploaded_session_after_analysis(metadata: Optional[UploadSessionMetadata], ttl_seconds: int) -> None:
-    if metadata is None:
-        return
-
+def get_or_create_analysis_session(file_id: str, ttl_seconds: int) -> Tuple[Optional[AnalysisSessionMetadata], Optional[str]]:
     with session_registry.lock:
-        current = session_registry.upload_sessions.get(metadata.session_id)
-        if current is metadata:
-            metadata.is_analyzing = False
-            metadata.touch(ttl_seconds)
-
-
-def close_upload_session(session_id: str) -> Tuple[Optional[Dict[str, object]], str, str]:
-    with session_registry.lock:
-        metadata = session_registry.upload_sessions.get(session_id)
+        metadata = session_registry.upload_sessions.get(file_id)
         if metadata is None:
-            return None, "not_found", "Upload session not found"
-        if not metadata.upload_lock.acquire(blocking=False):
-            return None, "busy", "Upload session is already processing an upload"
+            return None, "Upload session not found"
+        if metadata.status != UploadSessionStatus.UPLOADED:
+            return None, f"Upload session state is {metadata.status.value}, expected uploaded"
+        if metadata.analysis_session_id and metadata.analysis_session_id in session_registry.analysis_sessions:
+            analysis = session_registry.analysis_sessions[metadata.analysis_session_id]
+            analysis.touch(ttl_seconds)
+            metadata.touch(ttl_seconds)
+            return analysis, None
+        session_id = uuid.uuid4().hex
+        analysis = AnalysisSessionMetadata(session_id=session_id, file_id=file_id, status=AnalysisSessionStatus.CREATED)
+        analysis.touch(ttl_seconds)
+        metadata.analysis_session_id = session_id
+        metadata.touch(ttl_seconds)
+        session_registry.analysis_sessions[session_id] = analysis
+        return analysis, None
 
-        latest_metadata = session_registry.upload_sessions.get(session_id)
-        if latest_metadata is None:
-            release_upload_lock(metadata)
-            return None, "not_found", "Upload session not found"
 
-        metadata = latest_metadata
-        if _has_active_analysis_unlocked(metadata):
-            release_upload_lock(metadata)
-            return None, "invalid_state", "Upload session is currently being analyzed"
+def acquire_analysis_session(session_id: str, ttl_seconds: int) -> Tuple[Optional[AnalysisSessionMetadata], Optional[UploadSessionMetadata], Optional[str]]:
+    with session_registry.lock:
+        analysis = session_registry.analysis_sessions.get(session_id)
+        if analysis is None:
+            return None, None, "Analysis session not found"
+        upload = session_registry.upload_sessions.get(analysis.file_id)
+        if upload is None:
+            return None, None, "Upload session not found"
+        analysis.touch(ttl_seconds)
+        upload.touch(ttl_seconds)
+        upload.is_analyzing = True
+        analysis.status = AnalysisSessionStatus.RUNNING
+        return analysis, upload, None
 
-        popped_metadata, cdb_session = _pop_upload_session_unlocked(session_id)
 
-    if popped_metadata is None:
-        release_upload_lock(metadata)
-        return None, "not_found", "Upload session not found"
+def release_analysis_session(session_id: str, ttl_seconds: int) -> None:
+    with session_registry.lock:
+        analysis = session_registry.analysis_sessions.get(session_id)
+        if analysis is None:
+            return
+        upload = session_registry.upload_sessions.get(analysis.file_id)
+        analysis.touch(ttl_seconds)
+        if upload is not None:
+            upload.is_analyzing = False
+            upload.touch(ttl_seconds)
 
-    try:
-        _cleanup_upload_session_resources(popped_metadata, cdb_session, swallow_shutdown_errors=True)
-        return {
-            "session_id": session_id,
-            "status": "closed",
-        }, "", ""
-    finally:
-        release_upload_lock(popped_metadata)
+
+def close_analysis_session(session_id: str) -> Tuple[Optional[Dict[str, object]], str, str]:
+    with session_registry.lock:
+        analysis = session_registry.analysis_sessions.pop(session_id, None)
+        if analysis is None:
+            return None, "not_found", "Analysis session not found"
+        upload = session_registry.upload_sessions.pop(analysis.file_id, None)
+        cdb = session_registry.cdb_sessions.pop(build_upload_cdb_session_key(session_id), None)
+        session_registry.cdb_creation_locks.pop(build_upload_cdb_session_key(session_id), None)
+
+    if cdb and callable(getattr(cdb, "shutdown", None)):
+        try:
+            cdb.shutdown()
+        except Exception:
+            logger.exception("Failed to shutdown CDB session for session_id=%s", session_id)
+    if upload:
+        cleanup_temp_upload_file(upload.temp_file_path)
+    return {"session_id": session_id, "status": "closed"}, "", ""
 
 
 def get_cdb_session(session_key: str) -> object:
@@ -541,49 +391,47 @@ def get_cdb_session(session_key: str) -> object:
         return session_registry.cdb_sessions.get(session_key)
 
 
+def _get_cdb_creation_lock(session_key: str) -> threading.Lock:
+    with session_registry.lock:
+        lock = session_registry.cdb_creation_locks.get(session_key)
+        if lock is None:
+            lock = threading.Lock()
+            session_registry.cdb_creation_locks[session_key] = lock
+        return lock
+
+
 def get_or_create_cdb_session(session_key: str, factory):
     existing = get_cdb_session(session_key)
     if existing is not None:
         return existing
-
     with _get_cdb_creation_lock(session_key):
         existing = get_cdb_session(session_key)
         if existing is not None:
             return existing
-
         created = factory()
-
         with session_registry.lock:
-            existing = session_registry.cdb_sessions.get(session_key)
-            if existing is None:
+            current = session_registry.cdb_sessions.get(session_key)
+            if current is None:
                 session_registry.cdb_sessions[session_key] = created
                 return created
-
+            existing = current
     shutdown = getattr(created, "shutdown", None)
     if callable(shutdown):
         try:
             shutdown()
         except Exception:
             logger.exception("Failed to shut down duplicate CDB session for key %s", session_key)
-
     return existing
-
-
-def pop_cdb_session(session_key: str) -> object:
-    with session_registry.lock:
-        session = session_registry.cdb_sessions.pop(session_key, None)
-        session_registry.cdb_creation_locks.pop(session_key, None)
-        return session
 
 
 def cleanup_sessions() -> None:
     with session_registry.lock:
         cdb_sessions = list(session_registry.cdb_sessions.values())
-        upload_sessions = list(session_registry.upload_sessions.values())
+        uploads = list(session_registry.upload_sessions.values())
         session_registry.cdb_sessions.clear()
         session_registry.upload_sessions.clear()
+        session_registry.analysis_sessions.clear()
         session_registry.cdb_creation_locks.clear()
-
     for session in cdb_sessions:
         shutdown = getattr(session, "shutdown", None)
         if callable(shutdown):
@@ -591,8 +439,7 @@ def cleanup_sessions() -> None:
                 shutdown()
             except Exception:
                 pass
-
-    for metadata in upload_sessions:
+    for metadata in uploads:
         cleanup_temp_upload_file(metadata.temp_file_path)
 
 
