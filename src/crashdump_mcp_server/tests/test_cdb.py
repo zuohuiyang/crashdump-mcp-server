@@ -188,13 +188,12 @@ def test_send_command_serializes_concurrent_calls():
     assert max_active_writes == 1
 
 
-def test_find_cdb_executable_prefers_cdb_path_env(monkeypatch):
-    monkeypatch.setenv("CDB_PATH", r"C:\custom\cdb.exe")
+def test_find_cdb_executable_prefers_custom_path(monkeypatch):
     monkeypatch.setattr(cdb_session_module.os.path, "isfile", lambda path: path == r"C:\custom\cdb.exe")
 
     session = object.__new__(CDBSession)
 
-    assert session._find_cdb_executable() == r"C:\custom\cdb.exe"
+    assert session._find_cdb_executable(r"C:\custom\cdb.exe") == r"C:\custom\cdb.exe"
 
 
 def test_execute_command_heartbeat_callback_invoked():

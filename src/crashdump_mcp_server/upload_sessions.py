@@ -14,10 +14,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_UPLOAD_MB = 100
 DEFAULT_SESSION_TTL_SECONDS = 1800
 DEFAULT_MAX_ACTIVE_SESSIONS = 10
-UPLOAD_DIR_ENV = "CRASHDUMP_MCP_UPLOAD_DIR"
-MAX_UPLOAD_MB_ENV = "CRASHDUMP_MCP_MAX_UPLOAD_MB"
-SESSION_TTL_ENV = "CRASHDUMP_MCP_SESSION_TTL_SECONDS"
-MAX_ACTIVE_SESSIONS_ENV = "CRASHDUMP_MCP_MAX_ACTIVE_SESSIONS"
 MINIDUMP_SIGNATURE = b"MDMP"
 PAGE_DUMP_SIGNATURE = b"PAGE"
 SUPPORTED_DUMP_SIGNATURES = {
@@ -104,18 +100,6 @@ _upload_storage_lock = threading.Lock()
 _initialized_upload_dir: Optional[str] = None
 
 
-def _load_positive_int_env(name: str, default: int) -> int:
-    raw = (os.getenv(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        value = int(raw)
-        return value if value > 0 else default
-    except ValueError:
-        logger.warning("Invalid integer in %s=%r, using default=%d", name, raw, default)
-        return default
-
-
 def _default_upload_dir() -> str:
     program_data = os.getenv("PROGRAMDATA")
     if program_data:
@@ -123,14 +107,45 @@ def _default_upload_dir() -> str:
     return str(Path(tempfile.gettempdir()) / "crashdump-mcp-server" / "uploads")
 
 
-def load_upload_runtime_config() -> UploadRuntimeConfig:
-    upload_dir = (os.getenv(UPLOAD_DIR_ENV) or "").strip() or _default_upload_dir()
+def create_upload_runtime_config(
+    *,
+    upload_dir: Optional[str] = None,
+    max_upload_mb: int = DEFAULT_MAX_UPLOAD_MB,
+    session_ttl_seconds: int = DEFAULT_SESSION_TTL_SECONDS,
+    max_active_sessions: int = DEFAULT_MAX_ACTIVE_SESSIONS,
+) -> UploadRuntimeConfig:
+    if max_upload_mb <= 0:
+        raise ValueError("max_upload_mb must be greater than 0")
+    if session_ttl_seconds <= 0:
+        raise ValueError("session_ttl_seconds must be greater than 0")
+    if max_active_sessions <= 0:
+        raise ValueError("max_active_sessions must be greater than 0")
+
+    resolved_upload_dir = os.path.abspath((upload_dir or "").strip() or _default_upload_dir())
     return UploadRuntimeConfig(
-        upload_dir=os.path.abspath(upload_dir),
-        max_upload_mb=_load_positive_int_env(MAX_UPLOAD_MB_ENV, DEFAULT_MAX_UPLOAD_MB),
-        session_ttl_seconds=_load_positive_int_env(SESSION_TTL_ENV, DEFAULT_SESSION_TTL_SECONDS),
-        max_active_sessions=_load_positive_int_env(MAX_ACTIVE_SESSIONS_ENV, DEFAULT_MAX_ACTIVE_SESSIONS),
+        upload_dir=resolved_upload_dir,
+        max_upload_mb=max_upload_mb,
+        session_ttl_seconds=session_ttl_seconds,
+        max_active_sessions=max_active_sessions,
     )
+
+
+def configure_upload_runtime(
+    *,
+    upload_dir: Optional[str] = None,
+    max_upload_mb: int = DEFAULT_MAX_UPLOAD_MB,
+    session_ttl_seconds: int = DEFAULT_SESSION_TTL_SECONDS,
+    max_active_sessions: int = DEFAULT_MAX_ACTIVE_SESSIONS,
+) -> UploadRuntimeConfig:
+    global upload_runtime_config
+    upload_runtime_config = create_upload_runtime_config(
+        upload_dir=upload_dir,
+        max_upload_mb=max_upload_mb,
+        session_ttl_seconds=session_ttl_seconds,
+        max_active_sessions=max_active_sessions,
+    )
+    initialize_upload_storage(upload_runtime_config)
+    return upload_runtime_config
 
 
 def ensure_controlled_upload_dir(upload_dir: str) -> str:
@@ -444,4 +459,4 @@ def cleanup_sessions() -> None:
 
 
 session_registry = SessionRegistry()
-upload_runtime_config = load_upload_runtime_config()
+upload_runtime_config = create_upload_runtime_config()

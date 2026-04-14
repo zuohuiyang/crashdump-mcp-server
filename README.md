@@ -16,7 +16,7 @@
 
 - 操作系统：Windows
 - Python：3.10 及以上
-- 调试器：已安装 WinDbg/CDB，且服务端可访问 `cdb.exe`
+- 调试器：建议使用 Windows SDK `26100` 及以上版本（含 WinDbg/CDB），且服务端可访问 `cdb.exe`
 - 网络：客户端可访问 `--public-base-url` 对应地址
 
 ## 使用流程
@@ -55,10 +55,14 @@ uv run crashdump-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://
 |------|------|--------|------|
 | `--host` | 否 | `127.0.0.1` | 服务监听地址 |
 | `--port` | 否 | `8000` | 服务监听端口 |
-| `--public-base-url` | 远端部署时是 | `http://<host>:<port>` | 返回给客户端的可访问基址 |
+| `--public-base-url` | 是（必填） | 无 | 返回给客户端的可访问基址 |
 | `--cdb-path` | 否 | 自动探测 | `cdb.exe` 路径 |
-| `--symbols-path` | 否 | `_NT_SYMBOL_PATH` 或 `srv*c:\symbols*https://msdl.microsoft.com/download/symbols` | 服务端符号路径（调用方不可覆盖） |
+| `--symbols-path` | 否 | `srv*c:\symbols*https://msdl.microsoft.com/download/symbols` | 服务端符号路径（调用方不可覆盖） |
 | `--timeout` | 否 | `30` | 命令执行超时（秒） |
+| `--upload-dir` | 否 | `%PROGRAMDATA%\crashdump-mcp-server\uploads` 或系统临时目录 | 上传临时目录 |
+| `--max-upload-mb` | 否 | `100` | 最大上传大小（MB） |
+| `--session-ttl-seconds` | 否 | `1800` | 空闲会话 TTL（秒） |
+| `--max-active-sessions` | 否 | `10` | 最大活跃上传会话数 |
 | `--verbose` | 否 | `false` | 输出详细日志 |
 
 说明：
@@ -70,16 +74,6 @@ uv run crashdump-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://
 - 命令执行状态固定为：`queued`、`running`、`completed`
 - 工具调用失败时返回结构化错误（含错误码与错误信息），便于客户端处理
 - `prepare_dump_upload` 在无法生成可访问上传地址时返回 `UPLOAD_URL_UNAVAILABLE`
-
-## 环境变量
-
-| 变量 | 用途 | 默认值 |
-|------|------|--------|
-| `CRASHDUMP_MCP_SERVER_BASE_URL` | 返回 `upload_url` 的对外基址 | 无默认值，远端部署需显式配置 |
-| `CRASHDUMP_MCP_UPLOAD_DIR` | 上传临时目录 | `%PROGRAMDATA%\\crashdump-mcp-server\\uploads` 或系统临时目录 |
-| `CRASHDUMP_MCP_MAX_UPLOAD_MB` | 最大上传大小（MB） | `100` |
-| `CRASHDUMP_MCP_SESSION_TTL_SECONDS` | 空闲会话 TTL（秒） | `1800` |
-| `CRASHDUMP_MCP_MAX_ACTIVE_SESSIONS` | 最大活跃上传会话数 | `10` |
 
 ## 开发与测试
 

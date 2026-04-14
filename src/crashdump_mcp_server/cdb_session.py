@@ -151,10 +151,6 @@ class CDBSession:
         if custom_path and os.path.isfile(custom_path):
             return custom_path
 
-        env_path = os.getenv("CDB_PATH")
-        if env_path and os.path.isfile(env_path):
-            return env_path
-
         for path in DEFAULT_CDB_PATHS:
             if os.path.isfile(path):
                 return path

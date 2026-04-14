@@ -13,7 +13,10 @@ def main():
         "--symbols-path",
         type=str,
         default=None,
-        help="服务端符号路径（调用方不可覆盖）；默认 srv*c:\\symbols*https://msdl.microsoft.com/download/symbols",
+        help=(
+            "Server-side symbol path (not overridable by tool callers). "
+            "Default: srv*c:\\symbols*https://msdl.microsoft.com/download/symbols"
+        ),
     )
     parser.add_argument("--timeout", type=int, default=30, help="Command timeout in seconds")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
@@ -22,8 +25,32 @@ def main():
     parser.add_argument(
         "--public-base-url",
         type=str,
+        required=True,
+        help="Externally reachable base URL used when returning upload_url",
+    )
+    parser.add_argument(
+        "--upload-dir",
+        type=str,
         default=None,
-        help="Externally reachable base URL used when returning upload_url (default: http://<host>:<port>)",
+        help="Directory used for temporary uploaded dump storage",
+    )
+    parser.add_argument(
+        "--max-upload-mb",
+        type=int,
+        default=100,
+        help="Maximum upload size in MB (default: 100)",
+    )
+    parser.add_argument(
+        "--session-ttl-seconds",
+        type=int,
+        default=1800,
+        help="TTL for inactive upload/analysis sessions in seconds (default: 1800)",
+    )
+    parser.add_argument(
+        "--max-active-sessions",
+        type=int,
+        default=10,
+        help="Maximum number of active upload sessions (default: 10)",
     )
 
     args = parser.parse_args()
@@ -36,6 +63,10 @@ def main():
         timeout=args.timeout,
         verbose=args.verbose,
         public_base_url_override=args.public_base_url,
+        upload_dir=args.upload_dir,
+        max_upload_mb=args.max_upload_mb,
+        session_ttl_seconds=args.session_ttl_seconds,
+        max_active_sessions=args.max_active_sessions,
     ))
 
 

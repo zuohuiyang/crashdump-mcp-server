@@ -37,59 +37,53 @@
           "type": "named",
           "name": "--public-base-url",
           "description": "Client-reachable base URL used when returning upload_url; required for remote upload workflows"
+        },
+        {
+          "type": "named",
+          "name": "--cdb-path",
+          "description": "Custom path to cdb.exe (optional)"
+        },
+        {
+          "type": "named",
+          "name": "--symbols-path",
+          "description": "Symbol path for Windows debugging (optional)"
+        },
+        {
+          "type": "named",
+          "name": "--timeout",
+          "default": "30",
+          "description": "Default command timeout in seconds"
+        },
+        {
+          "type": "named",
+          "name": "--upload-dir",
+          "description": "Directory used for temporary uploaded dump storage"
+        },
+        {
+          "type": "named",
+          "name": "--max-upload-mb",
+          "default": "100",
+          "description": "Maximum upload size in megabytes for crash dump uploads"
+        },
+        {
+          "type": "named",
+          "name": "--session-ttl-seconds",
+          "default": "1800",
+          "description": "Time-to-live in seconds for inactive upload and analysis sessions"
+        },
+        {
+          "type": "named",
+          "name": "--max-active-sessions",
+          "default": "10",
+          "description": "Maximum number of active upload sessions"
+        },
+        {
+          "type": "flag",
+          "name": "--verbose",
+          "description": "Enable verbose server logging"
         }
       ],
-      "environmentVariables": [
-        {
-          "description": "Custom path to cdb.exe (optional)",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "CDB_PATH"
-        },
-        {
-          "description": "Symbol path for Windows debugging (optional, defaults to Microsoft symbol server)",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "_NT_SYMBOL_PATH"
-        },
-        {
-          "description": "Client-reachable base URL used when returning upload_url; required for remote upload workflows",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "CRASHDUMP_MCP_SERVER_BASE_URL"
-        },
-        {
-          "description": "Directory used for temporary uploaded dump storage",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "CRASHDUMP_MCP_UPLOAD_DIR"
-        },
-        {
-          "description": "Maximum upload size in megabytes for crash dump uploads",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "CRASHDUMP_MCP_MAX_UPLOAD_MB"
-        },
-        {
-          "description": "Time-to-live in seconds for inactive upload sessions",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "CRASHDUMP_MCP_SESSION_TTL_SECONDS"
-        },
-        {
-          "description": "Maximum number of active upload sessions",
-          "isRequired": false,
-          "format": "string",
-          "isSecret": false,
-          "name": "CRASHDUMP_MCP_MAX_ACTIVE_SESSIONS"
-        }
-      ]
+      "environmentVariables": []
     }
   ]
 }

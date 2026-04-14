@@ -3,7 +3,6 @@ import atexit
 import errno
 import json
 import logging
-import os
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -57,7 +56,7 @@ DANGEROUS_PREFIXES: Tuple[str, ...] = ("reg", "sc")
 
 session_registry = upload_sessions.session_registry
 upload_runtime_config = upload_sessions.upload_runtime_config
-public_base_url = os.getenv("CRASHDUMP_MCP_SERVER_BASE_URL", "").strip().rstrip("/")
+public_base_url = ""
 _running_requests: dict[str, threading.Event] = {}
 _running_lock = threading.Lock()
 
@@ -152,7 +151,7 @@ def configure_public_base_url(
     explicit_base_url: Optional[str] = None,
 ) -> str:
     global public_base_url
-    configured = (explicit_base_url or os.getenv("CRASHDUMP_MCP_SERVER_BASE_URL", "").strip()).rstrip("/")
+    configured = (explicit_base_url or "").strip().rstrip("/")
     public_base_url = configured or f"http://{host}:{port}"
     return public_base_url
 
@@ -164,7 +163,7 @@ def build_upload_url(file_id: str) -> str:
         raise UploadWorkflowError(
             code=UPLOAD_ERROR_URL_UNAVAILABLE,
             message="upload URL cannot be derived from missing or non-routable public base URL",
-            remediation="Configure CRASHDUMP_MCP_SERVER_BASE_URL or --public-base-url with a client-reachable IP or hostname.",
+            remediation="Configure --public-base-url with a client-reachable IP or hostname.",
             details={"public_base_url": public_base_url},
             http_status=500,
         )
@@ -186,7 +185,7 @@ def _validate_dangerous_command(command: str) -> Optional[str]:
 
 
 def _resolve_symbols_path(configured_symbols_path: Optional[str]) -> str:
-    return configured_symbols_path or os.getenv("_NT_SYMBOL_PATH", "").strip() or DEFAULT_SYMBOL_PATH
+    return configured_symbols_path or DEFAULT_SYMBOL_PATH
 
 
 def create_upload_session(file_name: str, file_size: int) -> Dict[str, object]:
@@ -316,9 +315,20 @@ async def serve_http(
     timeout: int = 30,
     verbose: bool = False,
     public_base_url_override: Optional[str] = None,
+    upload_dir: Optional[str] = None,
+    max_upload_mb: int = DEFAULT_MAX_UPLOAD_MB,
+    session_ttl_seconds: int = DEFAULT_SESSION_TTL_SECONDS,
+    max_active_sessions: int = DEFAULT_MAX_ACTIVE_SESSIONS,
 ) -> None:
     import uvicorn
 
+    global upload_runtime_config
+    upload_runtime_config = upload_sessions.configure_upload_runtime(
+        upload_dir=upload_dir,
+        max_upload_mb=max_upload_mb,
+        session_ttl_seconds=session_ttl_seconds,
+        max_active_sessions=max_active_sessions,
+    )
     configure_public_base_url(host=host, port=port, explicit_base_url=public_base_url_override)
     app = create_http_app(
         cdb_path=cdb_path,
@@ -437,7 +447,7 @@ def create_http_app(
                     413,
                     UPLOAD_ERROR_TOO_LARGE,
                     f"Upload exceeds limit ({upload_runtime_config.max_upload_mb}MB)",
-                    remediation="Use a smaller dump file or increase CRASHDUMP_MCP_MAX_UPLOAD_MB on the server.",
+                    remediation="Use a smaller dump file or increase --max-upload-mb on the server.",
                     details={"file_id": file_id, "max_upload_mb": upload_runtime_config.max_upload_mb},
                 )
             return fail_upload(
