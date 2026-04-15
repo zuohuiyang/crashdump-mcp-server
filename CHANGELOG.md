@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 新增工具面重构：`prepare_dump_upload`、`start_analysis_session`、`execute_windbg_command`、`close_analysis_session`
 - 新增命令阶段状态：`queued/running/completed`
 - 新增危险命令拦截策略，默认严格拒绝执行
+- 在 README 中新增安全边界说明：服务默认用于内网/可信环境，当前不内置鉴权，公网使用需前置鉴权与 TLS
 
 ### Changed
 

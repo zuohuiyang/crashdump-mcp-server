@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from contextlib import asynccontextmanager
-from typing import Any, Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 from mcp.server import Server
@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from . import upload_sessions
 from .cdb_session import CDBError, CDBSession
-from .upload_sessions import UploadSessionMetadata, UploadSessionStatus
+from .upload_sessions import UploadSessionStatus
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,6 @@ UPLOAD_ERROR_INVALID_FORMAT = "INVALID_DUMP_FORMAT"
 UPLOAD_ERROR_INSUFFICIENT_STORAGE = "INSUFFICIENT_STORAGE"
 UPLOAD_ERROR_WRITE_FAILED = "UPLOAD_WRITE_FAILED"
 UPLOAD_ERROR_SESSION_NOT_FOUND = "UPLOAD_SESSION_NOT_FOUND"
-UPLOAD_ERROR_SESSION_EXPIRED = "UPLOAD_SESSION_EXPIRED"
 UPLOAD_ERROR_INVALID_STATE = "UPLOAD_SESSION_INVALID_STATE"
 UPLOAD_ERROR_TOO_MANY_SESSIONS = "UPLOAD_TOO_MANY_SESSIONS"
 UPLOAD_ERROR_UPLOAD_FAILED = "UPLOAD_FAILED"

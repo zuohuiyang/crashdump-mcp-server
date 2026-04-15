@@ -2,6 +2,8 @@
 
 用于远程 Windows Crash Dump 分析的 MCP 服务：支持上传 dump、创建分析会话、执行 CDB 命令，并返回执行状态。
 
+项目目标是让 AI 侧脱离对 Windows 操作系统的运行依赖：通过标准 MCP 接口调用部署在 Windows 服务端的 CDB 指令完成 dump 分析。
+
 <!-- mcp-name: io.github.zuohuiyang/crashdump-mcp-server -->
 
 ## 核心功能
@@ -18,6 +20,10 @@
 - Python：3.10 及以上
 - 调试器：建议使用 Windows SDK `26100` 及以上版本（含 WinDbg/CDB），且服务端可访问 `cdb.exe`
 - 网络：客户端可访问 `--public-base-url` 对应地址
+
+## 安全边界（重要）
+
+- 本服务默认面向内网/受信任环境，当前不内置用户鉴权与权限体系，请勿直接暴露公网；如需跨网络访问，请在前置网关或反向代理层提供鉴权、访问控制与 TLS，并结合网络隔离、白名单和防火墙限制访问来源。
 
 ## 使用流程
 

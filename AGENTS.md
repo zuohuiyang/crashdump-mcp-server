@@ -11,17 +11,14 @@ crashdump-mcp-server/
 │   ├── __main__.py           # Module entry point
 │   ├── server.py             # MCP server implementation
 │   ├── cdb_session.py        # CDB/WinDbg session management
-│   ├── prompts/              # Prompt templates for AI assistants
-│   │   └── dump-triage.prompt.md
 │   └── tests/                # Test suite
 │       ├── test_cdb.py       # Core CDB functionality tests
-│       ├── test_remote_debugging.py  # Remote debugging tests
+│       ├── test_upload_http.py
+│       ├── test_upload_session_infra.py
+│       ├── test_upload_session_integration.py
 │       └── dumps/            # Test crash dump files (Git LFS)
 ├── scripts/                  # Utility scripts
 │   └── check-version-consistency.ps1  # Validates version sync
-├── examples/                 # Example crash programs (C++)
-│   ├── build.ps1             # Build script for examples
-│   └── *.cpp                 # Various crash scenarios
 ├── .github/
 │   ├── workflows/            # CI/CD pipelines
 │   │   ├── ci.yml            # Main CI entry point
@@ -158,11 +155,8 @@ uv run pytest src/crashdump_mcp_server/tests/test_remote_debugging.py -v
 # Install in development mode
 uv sync --dev
 
-# Run the server locally (stdio mode)
-uv run python -m crashdump_mcp_server --verbose
-
 # Run with HTTP transport
-uv run python -m crashdump_mcp_server --transport streamable-http --port 8000
+uv run python -m crashdump_mcp_server --host 0.0.0.0 --port 8000 --public-base-url http://your-host:8000
 ```
 
 ### Code Quality
@@ -226,7 +220,7 @@ The server looks for CDB in these locations:
 - `C:\Program Files\Debugging Tools for Windows\cdb.exe`
 - Microsoft Store WinDbg location
 
-Set `CDB_PATH` environment variable to use a custom path.
+Pass CLI argument `--cdb-path` when starting the server.
 
 ### Tests Skipped
 
