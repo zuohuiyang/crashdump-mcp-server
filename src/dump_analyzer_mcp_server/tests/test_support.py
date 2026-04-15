@@ -1,6 +1,6 @@
 from os import path as os_path
 
-from crashdump_mcp_server.cdb_session import DEFAULT_CDB_PATHS
+from dump_analyzer_mcp_server.cdb_session import DEFAULT_CDB_PATHS
 
 
 def find_available_cdb() -> str | None:

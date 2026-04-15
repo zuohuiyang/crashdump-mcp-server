@@ -57,11 +57,11 @@ jobs:
     - name: Create GitHub Release Summary
       run: |
         echo "## 🎉 Package Published Successfully!" >> $GITHUB_STEP_SUMMARY
-        echo "📦 Published to **PyPI**: https://pypi.org/project/crashdump-mcp-server/" >> $GITHUB_STEP_SUMMARY
+        echo "📦 Published to **PyPI**: https://pypi.org/project/dump-analyzer-mcp-server/" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Installation" >> $GITHUB_STEP_SUMMARY
         echo '```bash' >> $GITHUB_STEP_SUMMARY
-        echo 'pip install crashdump-mcp-server' >> $GITHUB_STEP_SUMMARY
+        echo 'pip install dump-analyzer-mcp-server' >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
 

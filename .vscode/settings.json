@@ -1,7 +1,0 @@
-{
-    "python.testing.pytestArgs": [
-        "src/crashdump_mcp_server/tests"
-    ],
-    "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true
-}

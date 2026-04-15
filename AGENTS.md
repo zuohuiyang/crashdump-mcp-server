@@ -1,12 +1,12 @@
-# crashdump-mcp-server Development Guide
+# dump-analyzer-mcp-server Development Guide
 
-This document describes the repository structure, development workflows, and release process for the crashdump-mcp-server project.
+This document describes the repository structure, development workflows, and release process for the dump-analyzer-mcp-server project.
 
 ## Repository Structure
 
 ```
-crashdump-mcp-server/
-├── src/crashdump_mcp_server/           # Main source code
+dump-analyzer-mcp-server/
+├── src/dump_analyzer_mcp_server/           # Main source code
 │   ├── __init__.py           # Entry point, CLI argument parsing
 │   ├── __main__.py           # Module entry point
 │   ├── server.py             # MCP server implementation
@@ -91,7 +91,7 @@ Follow [Keep a Changelog](https://keepachangelog.com/) format:
 .\scripts\check-version-consistency.ps1
 
 # Run tests locally
-uv run pytest src/crashdump_mcp_server/tests/ -v
+uv run pytest src/dump_analyzer_mcp_server/tests/ -v
 
 # Commit changes
 git add pyproject.toml server.json CHANGELOG.md
@@ -128,23 +128,23 @@ uv sync --dev
 ### Run All Tests
 
 ```powershell
-uv run pytest src/crashdump_mcp_server/tests/ -v
+uv run pytest src/dump_analyzer_mcp_server/tests/ -v
 ```
 
 ### Run Specific Test Files
 
 ```powershell
 # Core CDB tests
-uv run pytest src/crashdump_mcp_server/tests/test_cdb.py -v
+uv run pytest src/dump_analyzer_mcp_server/tests/test_cdb.py -v
 
 # Remote debugging tests
-uv run pytest src/crashdump_mcp_server/tests/test_remote_debugging.py -v
+uv run pytest src/dump_analyzer_mcp_server/tests/test_remote_debugging.py -v
 ```
 
 ### Test Requirements
 
 - Tests require a working CDB installation (auto-detected from common paths)
-- Test dump files are stored in `src/crashdump_mcp_server/tests/dumps/` via Git LFS
+- Test dump files are stored in `src/dump_analyzer_mcp_server/tests/dumps/` via Git LFS
 - Remote debugging tests may take longer due to server setup/teardown
 
 ## Development Workflow
@@ -156,7 +156,7 @@ uv run pytest src/crashdump_mcp_server/tests/test_remote_debugging.py -v
 uv sync --dev
 
 # Run with HTTP transport
-uv run python -m crashdump_mcp_server --host 0.0.0.0 --port 8000 --public-base-url http://your-host:8000
+uv run python -m dump_analyzer_mcp_server --host 0.0.0.0 --port 8000 --public-base-url http://your-host:8000
 ```
 
 ### Code Quality
@@ -168,8 +168,8 @@ The project uses:
 
 ### Adding New Features
 
-1. Create/modify code in `src/crashdump_mcp_server/`
-2. Add corresponding tests in `src/crashdump_mcp_server/tests/`
+1. Create/modify code in `src/dump_analyzer_mcp_server/`
+2. Add corresponding tests in `src/dump_analyzer_mcp_server/tests/`
 3. Update CHANGELOG.md with the new feature
 4. Run tests locally before pushing
 
@@ -233,4 +233,3 @@ If tests are skipped:
 If CI fails on version consistency:
 - Run `.\scripts\check-version-consistency.ps1` locally
 - Ensure all three version locations are updated
-

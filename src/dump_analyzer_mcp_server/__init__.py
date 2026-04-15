@@ -1,12 +1,12 @@
 from .server import serve_http
 
 def main():
-    """Crash dump MCP server entry point."""
+    """Dump Analyzer MCP server entry point."""
     import argparse
     import asyncio
 
     parser = argparse.ArgumentParser(
-        description="Run the crashdump-mcp-server for remote Windows crash dump analysis."
+        description="Run the dump-analyzer-mcp-server for remote Windows crash dump analysis."
     )
     parser.add_argument("--cdb-path", type=str, help="Custom path to cdb.exe")
     parser.add_argument(

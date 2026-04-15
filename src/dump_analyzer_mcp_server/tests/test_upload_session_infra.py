@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from mcp.types import ListToolsRequest
 
-from crashdump_mcp_server import server
+from dump_analyzer_mcp_server import server
 
 
 pytestmark = pytest.mark.usefixtures("restore_upload_runtime_state")

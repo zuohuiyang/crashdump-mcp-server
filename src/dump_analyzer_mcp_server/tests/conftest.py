@@ -1,6 +1,6 @@
 import pytest
 
-from crashdump_mcp_server import server
+from dump_analyzer_mcp_server import server
 
 
 @pytest.fixture

@@ -17,10 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- 项目对外定位调整为 `CrashDump MCP Server`，聚焦远程 crash dump 分析服务
+- 项目对外定位调整为 `Dump Analyzer MCP Server`，聚焦远程 crash dump 分析服务
 - 上传会话结果重新返回完整 `upload_url`，降低客户端集成门槛
 - MCP 工具面移除远程调试相关工具，仅保留 dump 分析链路
-- `server.json`、README、CLI 与发布说明统一改名为 `crashdump-mcp-server`
+- `server.json`、README、CLI 与发布说明统一改名为 `dump-analyzer-mcp-server`
 - 命令执行模型改为 marker 驱动完成判定（`COMMAND_COMPLETED_MARKER`），不再依赖提示符正则
 - `pending` 阶段命名替换为 `queued`
 - 调用方不再可配置符号路径，仅允许服务端管理员通过 CLI/环境变量配置
@@ -75,7 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **What's New in This Release**
 
-This release focuses on making crashdump-mcp-server more reliable, faster, and easier to use for everyone - from beginners to advanced users.
+This release focuses on making dump-analyzer-mcp-server more reliable, faster, and easier to use for everyone - from beginners to advanced users.
 
 ### New Features
 
@@ -97,7 +97,7 @@ This release focuses on making crashdump-mcp-server more reliable, faster, and e
 **Documentation**
 - Added comprehensive debugging instructions for AI assistants ([`AGENTS.md`](AGENTS.md))
 - Created structured templates to help analyze crash dumps more effectively ([`.github/prompts/dump-triage.prompt.md`](.github/prompts/dump-triage.prompt.md))
-- All documentation is now available in the [repository Wiki](https://github.com/svnscha/crashdump-mcp-server/wiki) for easy access
+- All documentation is now available in the [repository Wiki](https://github.com/zuohuiyang/dump-analyzer-mcp-server/wiki) for easy access
 - Simplified the main [`README.md`](README.md) to focus on getting started quickly
 - Added this structured [`CHANGELOG.md`](CHANGELOG.md) to track all project changes
 
@@ -109,7 +109,7 @@ This release focuses on making crashdump-mcp-server more reliable, faster, and e
 ### 🤝 Community Contributions
 
 Special thanks to [@sooknarine](https://github.com/sooknarine) for these valuable contributions:
-- [Find local dumps with other common extensions #6](https://github.com/svnscha/crashdump-mcp-server/pull/6) - Now finds more crash dump files automatically
-- [Add support for remote debugging #10](https://github.com/svnscha/crashdump-mcp-server/pull/10) - Connect to live debugging sessions
+- [Find local dumps with other common extensions #6](https://github.com/zuohuiyang/dump-analyzer-mcp-server/pull/6) - Now finds more crash dump files automatically
+- [Add support for remote debugging #10](https://github.com/zuohuiyang/dump-analyzer-mcp-server/pull/10) - Connect to live debugging sessions
 
 

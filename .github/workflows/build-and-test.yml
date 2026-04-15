@@ -41,12 +41,12 @@ jobs:
       run: uv sync --dev
 
     - name: Run tests
-      run: uv run pytest src/crashdump_mcp_server/tests/ -v --tb=short
+      run: uv run pytest src/dump_analyzer_mcp_server/tests/ -v --tb=short
 
     - name: Test CLI entry point
       run: |
         # Test that the CLI entry point works
-        uv run crashdump-mcp-server --help || echo "CLI help command completed"
+        uv run dump-analyzer-mcp-server --help || echo "CLI help command completed"
 
     - name: Check version consistency
       run: .\scripts\check-version-consistency.ps1

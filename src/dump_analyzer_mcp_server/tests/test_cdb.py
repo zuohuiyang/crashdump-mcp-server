@@ -4,9 +4,9 @@ import time
 from types import SimpleNamespace
 import pytest
 
-import crashdump_mcp_server.cdb_session as cdb_session_module
-from crashdump_mcp_server.cdb_session import CDBSession
-from crashdump_mcp_server.tests.test_support import has_available_cdb
+import dump_analyzer_mcp_server.cdb_session as cdb_session_module
+from dump_analyzer_mcp_server.cdb_session import CDBSession
+from dump_analyzer_mcp_server.tests.test_support import has_available_cdb
 
 # Path to the test dump file
 TEST_DUMP_PATH = os.path.join(os.path.dirname(__file__), "dumps", "DemoCrash1.exe.7088.dmp")

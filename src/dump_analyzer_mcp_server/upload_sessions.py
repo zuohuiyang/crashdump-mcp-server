@@ -103,8 +103,8 @@ _initialized_upload_dir: Optional[str] = None
 def _default_upload_dir() -> str:
     program_data = os.getenv("PROGRAMDATA")
     if program_data:
-        return str(Path(program_data) / "crashdump-mcp-server" / "uploads")
-    return str(Path(tempfile.gettempdir()) / "crashdump-mcp-server" / "uploads")
+        return str(Path(program_data) / "dump-analyzer-mcp-server" / "uploads")
+    return str(Path(tempfile.gettempdir()) / "dump-analyzer-mcp-server" / "uploads")
 
 
 def create_upload_runtime_config(

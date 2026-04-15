@@ -1,10 +1,10 @@
-# CrashDump MCP Server
+# Dump Analyzer MCP Server
 
 用于远程 Windows Crash Dump 分析的 MCP 服务：支持上传 dump、创建分析会话、执行 CDB 命令，并返回执行状态。
 
 项目目标是让 AI 侧脱离对 Windows 操作系统的运行依赖：通过标准 MCP 接口调用部署在 Windows 服务端的 CDB 指令完成 dump 分析。
 
-<!-- mcp-name: io.github.zuohuiyang/crashdump-mcp-server -->
+<!-- mcp-name: io.github.zuohuiyang/dump-analyzer-mcp-server -->
 
 ## 核心功能
 
@@ -37,7 +37,7 @@
 
 ```powershell
 uv sync
-uv run crashdump-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://your-host:8000
+uv run dump-analyzer-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://your-host:8000
 ```
 
 - MCP 入口：`http://your-host:8000/mcp`
@@ -48,7 +48,7 @@ uv run crashdump-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://
 ```json
 {
   "mcpServers": {
-    "crashdump": {
+    "dump-analyzer": {
       "url": "http://your-host:8000/mcp"
     }
   }
@@ -65,7 +65,7 @@ uv run crashdump-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://
 | `--cdb-path` | 否 | 自动探测 | `cdb.exe` 路径 |
 | `--symbols-path` | 否 | `srv*c:\symbols*https://msdl.microsoft.com/download/symbols` | 服务端符号路径（调用方不可覆盖） |
 | `--timeout` | 否 | `30` | 命令执行超时（秒） |
-| `--upload-dir` | 否 | `%PROGRAMDATA%\crashdump-mcp-server\uploads` 或系统临时目录 | 上传临时目录 |
+| `--upload-dir` | 否 | `%PROGRAMDATA%\dump-analyzer-mcp-server\uploads` 或系统临时目录 | 上传临时目录 |
 | `--max-upload-mb` | 否 | `100` | 最大上传大小（MB） |
 | `--session-ttl-seconds` | 否 | `1800` | 空闲会话 TTL（秒） |
 | `--max-active-sessions` | 否 | `10` | 最大活跃上传会话数 |
@@ -84,7 +84,7 @@ uv run crashdump-mcp-server --host 0.0.0.0 --port 8000 --public-base-url http://
 ## 开发与测试
 
 ```bash
-uv run pytest src/crashdump_mcp_server/tests/ -v
+uv run pytest src/dump_analyzer_mcp_server/tests/ -v
 ```
 
 ## Fork 说明

@@ -1,12 +1,12 @@
 [project]
-name = "crashdump-mcp-server"
+name = "dump-analyzer-mcp-server"
 version = "0.1.0"
 description = "A Model Context Protocol server for remote Windows crash dump analysis using WinDbg/CDB"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "svnscha" }]
 maintainers = [{ name = "zuohuiyang" }]
-keywords = ["crashdump", "windbg", "cdb", "mcp", "server"]
+keywords = ["dump-analyzer", "windbg", "cdb", "mcp", "server"]
 license = "MIT"
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -26,12 +26,12 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/zuohuiyang/crashdump-mcp-server"
-Repository = "https://github.com/zuohuiyang/crashdump-mcp-server"
+Homepage = "https://github.com/zuohuiyang/dump-analyzer-mcp-server"
+Repository = "https://github.com/zuohuiyang/dump-analyzer-mcp-server"
 Upstream = "https://github.com/svnscha/mcp-windbg"
 
 [project.scripts]
-crashdump-mcp-server = "crashdump_mcp_server:main"
+dump-analyzer-mcp-server = "dump_analyzer_mcp_server:main"
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]
@@ -45,7 +45,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["src/crashdump_mcp_server/tests"]
+testpaths = ["src/dump_analyzer_mcp_server/tests"]
 
 [project.optional-dependencies]
 test = ["pytest>=9.0.2"]
