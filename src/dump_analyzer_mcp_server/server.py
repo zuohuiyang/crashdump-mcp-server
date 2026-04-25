@@ -339,7 +339,7 @@ async def serve_http(
 
     logger.info("Starting %s on %s:%s", SERVER_NAME, host, port)
     print(f"{SERVER_NAME} running on http://{host}:{port}")
-    print(f"  MCP endpoint: http://{host}:{port}/mcp")
+    print(f"  MCP endpoint: {public_base_url}/mcp")
     print(f"  Upload base URL: {public_base_url}")
 
     config = uvicorn.Config(app, host=host, port=port, log_level="info" if verbose else "warning")
