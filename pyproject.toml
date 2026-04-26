@@ -46,6 +46,11 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["src/dump_analyzer_mcp_server/tests"]
+markers = [
+    "e2e: 端到端测试",
+    "e2e_remote: 远程已部署服务模式的 E2E",
+    "e2e_symbol_heavy: 大 PDB 长时间加载场景 E2E",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=9.0.2"]

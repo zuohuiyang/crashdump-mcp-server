@@ -87,6 +87,65 @@ uv run dump-analyzer-mcp-server --host 0.0.0.0 --port 8000 --public-base-url htt
 uv run pytest src/dump_analyzer_mcp_server/tests/ -v
 ```
 
+### E2E 测试（新增）
+
+E2E 统一按远程用户视角执行：测试代码作为客户端调用已部署服务。
+
+一键执行（部署 + 启动 + 全量 E2E + 前后清理）：
+
+```powershell
+.\scripts\e2e-deploy-start-run.ps1
+```
+
+脚本特性：
+
+- 零参数执行：自动确定本机可用 IPv4 并启动服务
+- 固定执行全量 E2E：`src/dump_analyzer_mcp_server/tests/e2e`
+- symbol_heavy 样本路径由测试配置负责（默认：`tests/e2e/assets/electron.dmp`）
+- E2E 客户端默认使用实际局域网 IP（与服务端 `public-base-url` 一致）
+- 运行时使用 `pytest -s -vv`，会实时输出测试 stdout 与详细进度
+- 执行前后都会清理临时 symbols 目录，保证下次仍为冷加载
+- 服务 symbols 源同时包含：
+  - `https://msdl.microsoft.com/download/symbols`
+  - `https://symbols.electronjs.org`
+
+常用环境变量：
+
+- `DUMP_E2E_BASE_URL`：已部署服务地址（示例：`http://your-host:8000`）
+- `DUMP_E2E_DUMP_PATH`：核心闭环用例 dump 路径（默认仓库自带 DemoCrash）
+
+脚本会打印并保存以下日志：
+
+- 关键参数：清理目录、`publicBaseUrl`、E2E 客户端地址、`symbolsPath`、`cdbPath`、`dump` 路径、服务启动命令
+- pytest 日志文件：`%TEMP%\dump-analyzer-e2e-pytest.log`
+- server stdout/stderr：`%TEMP%\dump-analyzer-e2e-server.out.log` / `%TEMP%\dump-analyzer-e2e-server.err.log`
+- 失败时会额外输出：pytest 尾部、server 尾部、端口/进程快照、防火墙手动放行命令模板（不自动修改系统规则）
+
+常见失败快速定位：
+
+- 端口冲突：`Get-NetTCPConnection -LocalPort 8000`
+- 进程占用：`Get-CimInstance Win32_Process | ? { $_.CommandLine -match "dump_analyzer_mcp_server|pytest|uv run" }`
+- 防火墙手动放行（管理员 PowerShell）：
+  - `New-NetFirewallRule -DisplayName "DumpAnalyzer-E2E-8000" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8000`
+  - `New-NetFirewallRule -DisplayName "DumpAnalyzer-E2E-Python" -Direction Inbound -Action Allow -Program "<venvPython路径>"`
+
+`e2e_symbol_heavy` 场景验收标准（硬性）：
+
+- 执行 `.ecxr;kv` 后，调用栈必须出现 `electron!electron::ElectronBindings::Crash`
+- `00` 栈帧（第一帧）必须命中 `electron::ElectronBindings::Crash`
+
+只跑核心闭环 E2E（不含 Electron）：
+
+```bash
+uv run pytest src/dump_analyzer_mcp_server/tests/e2e -m "e2e and not e2e_symbol_heavy" -v
+```
+
+跑大 PDB 长时间加载场景用例：
+
+```bash
+uv run pytest src/dump_analyzer_mcp_server/tests/e2e -m "e2e_symbol_heavy" -v
+```
+
 ## Fork 说明
 
 - 本项目基于上游 `svnscha/mcp-windbg` fork 并持续演进，当前定位已调整为远程 Windows Crash Dump 分析 MCP 服务。
