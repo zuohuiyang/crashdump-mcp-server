@@ -36,6 +36,17 @@ def _execute_command(client: MCPHTTPClient, session_id: str, command: str, timeo
     return parse_tool_text_payload(result)
 
 
+def _execute_command_with_progress(
+    client: MCPHTTPClient, session_id: str, command: str, timeout: int = 300
+) -> tuple[bool, dict | str, list[dict]]:
+    result, progress_events = client.call_tool_with_progress(
+        "execute_windbg_command",
+        {"session_id": session_id, "command": command, "timeout": timeout},
+    )
+    is_error, payload = parse_tool_text_payload(result)
+    return is_error, payload, progress_events
+
+
 def _close_session(client: MCPHTTPClient, session_id: str) -> tuple[bool, dict | str]:
     result = client.call_tool("close_analysis_session", {"session_id": session_id})
     return parse_tool_text_payload(result)
@@ -55,11 +66,14 @@ def test_e2e_happy_path_small_dump(mcp_client: MCPHTTPClient, e2e_config: E2ECon
     assert isinstance(start_payload, dict)
     session_id = start_payload["session_id"]
 
-    exec_error, exec_payload = _execute_command(mcp_client, session_id, "version", timeout=120)
+    exec_error, exec_payload, progress_events = _execute_command_with_progress(
+        mcp_client, session_id, "version", timeout=120
+    )
     assert exec_error is False
     assert isinstance(exec_payload, dict)
     assert exec_payload["success"] is True
     assert "Microsoft (R) Windows Debugger" in exec_payload["output"]
+    assert any(str(event.get("phase", "")).lower() == "completed" for event in progress_events)
 
     close_error, close_payload = _close_session(mcp_client, session_id)
     assert close_error is False

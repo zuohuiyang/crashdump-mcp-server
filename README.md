@@ -10,8 +10,10 @@
 
 - 提供 4 个核心工具：`prepare_dump_upload`、`start_analysis_session`、`execute_windbg_command`、`close_analysis_session`
 - 命令执行状态统一为三阶段：`queued -> running -> completed`
+- MCP 通道采用 `streamable-http` 的 SSE 实时事件语义（执行中持续推送进度事件）
 - CDB 输出原样透传，不做语义解析
 - 命令长时间无输出时自动发送心跳，避免误判为卡死
+- 进度展示采用“阶段+文本”模型，不对符号加载等场景做百分比估算
 - 默认拒绝危险命令（如 `.shell`、重定向、`.create/.attach/.kill` 等）
 
 ## 前置条件

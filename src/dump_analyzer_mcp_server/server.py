@@ -364,7 +364,7 @@ def create_http_app(
         configure_public_base_url(explicit_base_url=public_base_url_override)
 
     server = _create_server(cdb_path, symbols_path, timeout, verbose)
-    session_manager = StreamableHTTPSessionManager(app=server, json_response=True)
+    session_manager = StreamableHTTPSessionManager(app=server)
 
     async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
         await session_manager.handle_request(scope, receive, send)

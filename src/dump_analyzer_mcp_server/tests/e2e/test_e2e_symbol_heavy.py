@@ -55,15 +55,42 @@ def _execute(client: MCPHTTPClient, session_id: str, command: str, timeout: int)
     return payload
 
 
+def _execute_with_progress(
+    client: MCPHTTPClient, session_id: str, command: str, timeout: int
+) -> tuple[dict, list[dict]]:
+    print(f"[symbol_heavy] run command (stream): {command}")
+    result, progress_events = client.call_tool_with_progress(
+        "execute_windbg_command",
+        {"session_id": session_id, "command": command, "timeout": timeout},
+    )
+    is_error, payload = parse_tool_text_payload(result)
+    assert is_error is False
+    assert isinstance(payload, dict)
+    assert payload["success"] is True
+    print(
+        f"[symbol_heavy] done command (stream): {command}, cost_ms={payload.get('execution_time_ms')}, "
+        f"progress_events={len(progress_events)}"
+    )
+    return payload, progress_events
+
+
 def test_e2e_symbol_heavy_cold_cache(mcp_client: MCPHTTPClient, e2e_config: E2EConfig):
     dump_payload = _require_symbol_heavy_asset(e2e_config)
     session_id = _prepare_and_start(mcp_client, e2e_config, dump_payload)
     try:
-        reload_result = _execute(mcp_client, session_id, ".reload /f", timeout=e2e_config.timeout_seconds)
+        _execute(mcp_client, session_id, "!sym noisy", timeout=e2e_config.timeout_seconds)
+        reload_result, reload_progress = _execute_with_progress(
+            mcp_client, session_id, ".reload /f", timeout=e2e_config.timeout_seconds
+        )
+        _execute(mcp_client, session_id, "!sym quiet", timeout=e2e_config.timeout_seconds)
         module_result = _execute(mcp_client, session_id, "lmv m electron*", timeout=e2e_config.timeout_seconds)
         kv_result = _execute(mcp_client, session_id, ".ecxr;kv", timeout=e2e_config.timeout_seconds)
 
         assert reload_result["execution_time_ms"] >= 0
+        progress_text = "\n".join(str(e.get("message", "")) for e in reload_progress)
+        assert any(str(e.get("phase", "")).lower() == "running" for e in reload_progress)
+        assert any(str(e.get("phase", "")).lower() == "completed" for e in reload_progress)
+        assert any(token in progress_text.upper() for token in ("SYMSRV", "DBGHELP", "PDB", "SYMBOL"))
         assert module_result["output"]
         assert "electron" in module_result["output"].lower()
 
