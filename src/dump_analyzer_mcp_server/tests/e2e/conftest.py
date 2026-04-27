@@ -54,7 +54,12 @@ def mcp_client(e2e_config: E2EConfig, verify_remote_server_ready: None) -> Itera
     client = MCPHTTPClient(e2e_config.base_url, timeout_seconds=e2e_config.timeout_seconds)
     client.initialize()
     yield client
-    client.delete_session()
+    try:
+        # Session cleanup should not block the whole E2E suite when server-side
+        # session teardown is slow or transiently stuck.
+        client.delete_session(timeout_seconds=10)
+    except Exception:
+        pass
 
 
 @pytest.fixture
@@ -92,3 +97,46 @@ def parse_tool_text_payload(call_result: dict[str, Any]) -> tuple[bool, dict[str
         return is_error, json.loads(text)
     except Exception:  # noqa: BLE001
         return is_error, text
+
+
+def format_mcp_failure_details(
+    *,
+    client: MCPHTTPClient,
+    tool_name: str,
+    arguments: dict[str, Any],
+    call_result: dict[str, Any],
+    parsed_payload: dict[str, Any] | str,
+    progress_events: list[dict[str, Any]] | None = None,
+) -> str:
+    exchange = getattr(client, "last_exchange", {})
+    details = {
+        "tool": tool_name,
+        "arguments": arguments,
+        "call_result": call_result,
+        "parsed_payload": parsed_payload,
+        "progress_events": progress_events or [],
+        "last_exchange": exchange,
+    }
+    return json.dumps(details, ensure_ascii=False, indent=2)
+
+
+def assert_tool_success(
+    *,
+    client: MCPHTTPClient,
+    tool_name: str,
+    arguments: dict[str, Any],
+    call_result: dict[str, Any],
+    progress_events: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | str:
+    is_error, parsed_payload = parse_tool_text_payload(call_result)
+    if is_error:
+        message = format_mcp_failure_details(
+            client=client,
+            tool_name=tool_name,
+            arguments=arguments,
+            call_result=call_result,
+            parsed_payload=parsed_payload,
+            progress_events=progress_events,
+        )
+        raise AssertionError(f"Tool call failed: {tool_name}\n{message}")
+    return parsed_payload

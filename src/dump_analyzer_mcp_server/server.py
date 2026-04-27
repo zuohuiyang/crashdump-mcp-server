@@ -108,7 +108,7 @@ class StartAnalysisSessionParams(BaseModel):
 class ExecuteWindbgCommandParams(BaseModel):
     session_id: str = Field(description="分析会话ID")
     command: str = Field(description="要执行的CDB命令")
-    timeout: int = Field(default=600, description="命令超时时间(秒)")
+    timeout: int = Field(default=600, description="命令空闲超时时间(秒，无输出时生效)")
 
     @model_validator(mode="after")
     def validate_timeout(self):
@@ -236,19 +236,19 @@ def get_or_create_uploaded_session(
 
 
 async def _send_progress(session, request_id: str, percent: Optional[float], message: str, phase: str) -> None:
-    notification = __import__("mcp.types", fromlist=["Notification", "ServerNotification"])
-    n_model = notification.Notification[dict, str](
-        method="$/progress",
-        params={
-            "token": request_id,
-            "value": {
-                "percent": percent,
-                "message": message,
-                "phase": phase,
-            },
-        },
+    payload = {
+        "phase": phase,
+        "message": message,
+        "percent": percent,
+    }
+    progress_value = 0.0 if percent is None else float(percent)
+    await session.send_progress_notification(
+        progress_token=request_id,
+        progress=progress_value,
+        total=100.0,
+        message=json.dumps(payload, ensure_ascii=False),
+        related_request_id=request_id,
     )
-    await session.send_notification(notification.ServerNotification(n_model), related_request_id=request_id)
 
 
 def _try_get_request_context(server: Server):

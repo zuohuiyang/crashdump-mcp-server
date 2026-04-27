@@ -2,10 +2,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$symbolsTempDir = Join-Path $env:TEMP "dump-analyzer-e2e-symbols"
-$uploadTempDir = Join-Path $env:TEMP "dump-analyzer-e2e-uploads"
+$runId = Get-Date -Format "yyyyMMdd_HHmmss_fff"
+$symbolsTempDir = Join-Path $env:TEMP "dump-analyzer-e2e-symbols-$runId"
+$uploadTempDir = Join-Path $env:TEMP "dump-analyzer-e2e-uploads-$runId"
 $defaultDumpPath = Join-Path $repoRoot "src\dump_analyzer_mcp_server\tests\dumps\DemoCrash1.exe.7088.dmp"
-$timeoutSeconds = "600"
+$timeoutSeconds = "1800"
 $hostBind = "0.0.0.0"
 $port = 8000
 
@@ -68,6 +69,10 @@ function Reset-Directory([string]$path) {
     if (Test-Path $path) {
         Remove-Item -Path $path -Recurse -Force
     }
+    New-Item -ItemType Directory -Path $path -Force | Out-Null
+}
+
+function Ensure-Directory([string]$path) {
     New-Item -ItemType Directory -Path $path -Force | Out-Null
 }
 
@@ -175,8 +180,8 @@ try {
     Write-Step "symbols temp dir: $symbolsTempDir"
     Write-Step "upload temp dir: $uploadTempDir"
     Stop-StaleE2EProcesses
-    Reset-Directory $symbolsTempDir
-    Reset-Directory $uploadTempDir
+    Ensure-Directory $symbolsTempDir
+    Ensure-Directory $uploadTempDir
 
     $localIp = Get-LocalIPv4
     $publicBaseUrl = "http://${localIp}:$port"
@@ -212,9 +217,13 @@ try {
     $env:DUMP_E2E_BASE_URL = $testBaseUrl
     $env:DUMP_E2E_DUMP_PATH = $defaultDumpPath
     $env:DUMP_E2E_TIMEOUT_SECONDS = $timeoutSeconds
+    $env:DUMP_E2E_MCP_TRACE = "1"
+    $env:DUMP_E2E_MCP_TRACE_MAX_CHARS = "12000"
     Write-Step "DUMP_E2E_BASE_URL=$($env:DUMP_E2E_BASE_URL)"
     Write-Step "DUMP_E2E_DUMP_PATH=$($env:DUMP_E2E_DUMP_PATH)"
     Write-Step "DUMP_E2E_TIMEOUT_SECONDS=$($env:DUMP_E2E_TIMEOUT_SECONDS)"
+    Write-Step "DUMP_E2E_MCP_TRACE=$($env:DUMP_E2E_MCP_TRACE)"
+    Write-Step "DUMP_E2E_MCP_TRACE_MAX_CHARS=$($env:DUMP_E2E_MCP_TRACE_MAX_CHARS)"
 
     Write-Step "Running all E2E tests (verbose + live stdout)"
     Write-Step "Command: $venvPython -m pytest src/dump_analyzer_mcp_server/tests/e2e -s -vv"
@@ -222,12 +231,11 @@ try {
     Write-Step "pytest stderr log file: $pytestErrLog"
     Remove-Item -Path $pytestErrLog -ErrorAction SilentlyContinue
     & $venvPython -m pytest src/dump_analyzer_mcp_server/tests/e2e -s -vv 2>&1 | Tee-Object -FilePath $pytestLog
-    if ($?) {
+    $pytestExitCode = $LASTEXITCODE
+    if ($pytestExitCode -eq 0) {
         $scriptExitCode = 0
-    } elseif ($LASTEXITCODE -ne 0) {
-        $scriptExitCode = $LASTEXITCODE
     } else {
-        $scriptExitCode = 1
+        $scriptExitCode = if ($pytestExitCode) { $pytestExitCode } else { 1 }
     }
 
     if ($scriptExitCode -eq 0) {
@@ -264,8 +272,12 @@ try {
         }
     }
     try {
-        Reset-Directory $symbolsTempDir
-        Reset-Directory $uploadTempDir
+        if (Test-Path $symbolsTempDir) {
+            Remove-Item -Path $symbolsTempDir -Recurse -Force
+        }
+        if (Test-Path $uploadTempDir) {
+            Remove-Item -Path $uploadTempDir -Recurse -Force
+        }
     } catch {
         Write-Warning "Cleanup warning: $($_.Exception.Message)"
     }

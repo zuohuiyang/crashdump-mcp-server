@@ -5,7 +5,12 @@ import re
 import pytest
 
 from dump_analyzer_mcp_server.tests.e2e.client import MCPHTTPClient
-from dump_analyzer_mcp_server.tests.e2e.conftest import parse_tool_text_payload, upload_dump
+from dump_analyzer_mcp_server.tests.e2e.conftest import (
+    assert_tool_success,
+    format_mcp_failure_details,
+    parse_tool_text_payload,
+    upload_dump,
+)
 from dump_analyzer_mcp_server.tests.e2e.config import E2EConfig
 
 
@@ -22,19 +27,25 @@ def _require_symbol_heavy_asset(config: E2EConfig) -> bytes:
 
 def _prepare_and_start(client: MCPHTTPClient, config: E2EConfig, dump_payload: bytes) -> str:
     file_name = config.symbol_heavy_dump_path.name if config.symbol_heavy_dump_path else "symbol-heavy.dmp"
+    prepare_arguments = {"file_name": file_name, "file_size": len(dump_payload)}
     prep_result = client.call_tool(
         "prepare_dump_upload",
-        {"file_name": file_name, "file_size": len(dump_payload)},
+        prepare_arguments,
     )
-    prep_error, prep_payload = parse_tool_text_payload(prep_result)
-    assert prep_error is False
+    prep_payload = assert_tool_success(
+        client=client,
+        tool_name="prepare_dump_upload",
+        arguments=prepare_arguments,
+        call_result=prep_result,
+    )
     assert isinstance(prep_payload, dict)
 
     status_code, upload_resp = upload_dump(prep_payload["upload_url"], dump_payload, config.timeout_seconds)
     assert status_code == 201
     assert upload_resp["status"] == "uploaded"
 
-    start_result = client.call_tool("start_analysis_session", {"file_id": prep_payload["file_id"]})
+    start_arguments = {"file_id": prep_payload["file_id"]}
+    start_result = client.call_tool("start_analysis_session", start_arguments)
     start_error, start_payload = parse_tool_text_payload(start_result)
     assert start_error is False
     assert isinstance(start_payload, dict)
@@ -43,11 +54,18 @@ def _prepare_and_start(client: MCPHTTPClient, config: E2EConfig, dump_payload: b
 
 def _execute(client: MCPHTTPClient, session_id: str, command: str, timeout: int) -> dict:
     print(f"[symbol_heavy] run command: {command}")
-    result = client.call_tool(
-        "execute_windbg_command",
-        {"session_id": session_id, "command": command, "timeout": timeout},
-    )
+    arguments = {"session_id": session_id, "command": command, "timeout": timeout}
+    result = client.call_tool("execute_windbg_command", arguments)
     is_error, payload = parse_tool_text_payload(result)
+    if is_error:
+        failure = format_mcp_failure_details(
+            client=client,
+            tool_name="execute_windbg_command",
+            arguments=arguments,
+            call_result=result,
+            parsed_payload=payload,
+        )
+        pytest.fail(f"symbol_heavy command failed: {command}\n{failure}")
     assert is_error is False
     assert isinstance(payload, dict)
     assert payload["success"] is True
@@ -59,11 +77,19 @@ def _execute_with_progress(
     client: MCPHTTPClient, session_id: str, command: str, timeout: int
 ) -> tuple[dict, list[dict]]:
     print(f"[symbol_heavy] run command (stream): {command}")
-    result, progress_events = client.call_tool_with_progress(
-        "execute_windbg_command",
-        {"session_id": session_id, "command": command, "timeout": timeout},
-    )
+    arguments = {"session_id": session_id, "command": command, "timeout": timeout}
+    result, progress_events = client.call_tool_with_progress("execute_windbg_command", arguments)
     is_error, payload = parse_tool_text_payload(result)
+    if is_error:
+        failure = format_mcp_failure_details(
+            client=client,
+            tool_name="execute_windbg_command",
+            arguments=arguments,
+            call_result=result,
+            parsed_payload=payload,
+            progress_events=progress_events,
+        )
+        pytest.fail(f"symbol_heavy streaming command failed: {command}\n{failure}")
     assert is_error is False
     assert isinstance(payload, dict)
     assert payload["success"] is True

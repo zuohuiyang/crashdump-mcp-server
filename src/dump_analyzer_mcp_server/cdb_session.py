@@ -9,6 +9,7 @@ from typing import Callable, List, Optional
 
 COMMAND_MARKER_TEXT = "COMMAND_COMPLETED_MARKER"
 COMMAND_MARKER = f".echo {COMMAND_MARKER_TEXT}"
+MAX_COMMAND_WALL_TIME_SECONDS = 30 * 60
 
 # Default paths where cdb.exe might be located
 DEFAULT_CDB_PATHS = [
@@ -134,12 +135,14 @@ class CDBSession:
         self._reader_thread = threading.Thread(target=self._read_output_bytes, daemon=True)
         self._reader_thread.start()
 
-        # Wait for CDB to initialize by probing with marker command
-        try:
-            self.send_command("version", timeout=max(self.timeout, 20))
-        except CDBError:
+        # Avoid blocking startup on an initialization probe command.
+        # For symbol-heavy dumps this phase can be very slow and opaque to clients.
+        # We only verify the process did not exit immediately; readiness is handled
+        # by the first real command where progress/heartbeat can be surfaced.
+        time.sleep(0.2)
+        if self.process.poll() is not None:
             self.shutdown()
-            raise CDBError("CDB initialization timed out")
+            raise CDBError("CDB process exited during initialization")
 
         # Run initial commands if provided
         if initial_commands:
@@ -250,7 +253,9 @@ class CDBSession:
         if not self.process or not self.process.stdin:
             raise CDBError("CDB process is not running")
 
-        cmd_timeout = timeout or self.timeout
+        # `timeout` means idle timeout (no output/heartbeat activity).
+        # A separate hard wall-time limit prevents unbounded command execution.
+        cmd_idle_timeout = timeout or self.timeout
         request_id = self._next_request_id()
         execution = CommandExecution(
             request_id=request_id,
@@ -273,8 +278,12 @@ class CDBSession:
             try:
                 while True:
                     now = time.time()
-                    if now - execution.started_at > cmd_timeout:
-                        raise CDBError(f"Command timed out after {cmd_timeout} seconds: {command}")
+                    if now - execution.started_at > MAX_COMMAND_WALL_TIME_SECONDS:
+                        raise CDBError(
+                            f"Command exceeded max wall time after {MAX_COMMAND_WALL_TIME_SECONDS} seconds: {command}"
+                        )
+                    if now - last_activity_at > cmd_idle_timeout:
+                        raise CDBError(f"Command idle timed out after {cmd_idle_timeout} seconds: {command}")
 
                     if cancel_event and cancel_event.is_set() and not execution.cancelled:
                         execution.cancelled = True

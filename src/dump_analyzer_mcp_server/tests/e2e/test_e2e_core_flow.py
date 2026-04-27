@@ -5,7 +5,12 @@ import json
 import pytest
 
 from dump_analyzer_mcp_server.tests.e2e.client import MCPHTTPClient
-from dump_analyzer_mcp_server.tests.e2e.conftest import parse_tool_text_payload, upload_dump
+from dump_analyzer_mcp_server.tests.e2e.conftest import (
+    assert_tool_success,
+    format_mcp_failure_details,
+    parse_tool_text_payload,
+    upload_dump,
+)
 from dump_analyzer_mcp_server.tests.e2e.config import E2EConfig
 
 
@@ -13,18 +18,24 @@ pytestmark = [pytest.mark.e2e]
 
 
 def _prepare_upload(client: MCPHTTPClient, file_name: str, payload: bytes) -> dict:
+    arguments = {"file_name": file_name, "file_size": len(payload)}
     call_result = client.call_tool(
         "prepare_dump_upload",
-        {"file_name": file_name, "file_size": len(payload)},
+        arguments,
     )
-    is_error, parsed = parse_tool_text_payload(call_result)
-    assert is_error is False
+    parsed = assert_tool_success(
+        client=client,
+        tool_name="prepare_dump_upload",
+        arguments=arguments,
+        call_result=call_result,
+    )
     assert isinstance(parsed, dict)
     return parsed
 
 
 def _start_session(client: MCPHTTPClient, file_id: str) -> tuple[bool, dict | str]:
-    result = client.call_tool("start_analysis_session", {"file_id": file_id})
+    arguments = {"file_id": file_id}
+    result = client.call_tool("start_analysis_session", arguments)
     return parse_tool_text_payload(result)
 
 
@@ -39,9 +50,10 @@ def _execute_command(client: MCPHTTPClient, session_id: str, command: str, timeo
 def _execute_command_with_progress(
     client: MCPHTTPClient, session_id: str, command: str, timeout: int = 300
 ) -> tuple[bool, dict | str, list[dict]]:
+    arguments = {"session_id": session_id, "command": command, "timeout": timeout}
     result, progress_events = client.call_tool_with_progress(
         "execute_windbg_command",
-        {"session_id": session_id, "command": command, "timeout": timeout},
+        arguments,
     )
     is_error, payload = parse_tool_text_payload(result)
     return is_error, payload, progress_events
@@ -69,6 +81,16 @@ def test_e2e_happy_path_small_dump(mcp_client: MCPHTTPClient, e2e_config: E2ECon
     exec_error, exec_payload, progress_events = _execute_command_with_progress(
         mcp_client, session_id, "version", timeout=120
     )
+    if exec_error:
+        failure = format_mcp_failure_details(
+            client=mcp_client,
+            tool_name="execute_windbg_command",
+            arguments={"session_id": session_id, "command": "version", "timeout": 120},
+            call_result={"isError": exec_error, "content": [{"type": "text", "text": str(exec_payload)}]},
+            parsed_payload=exec_payload,
+            progress_events=progress_events,
+        )
+        pytest.fail(f"version command failed\n{failure}")
     assert exec_error is False
     assert isinstance(exec_payload, dict)
     assert exec_payload["success"] is True
